@@ -11,6 +11,7 @@ import {
 import { ListSkeleton } from "../common/LoadingSkeleton";
 import { useModStore } from "../../store/modStore";
 import { useAppStore } from "../../store/appStore";
+import { confirm } from "@tauri-apps/plugin-dialog";
 import {
   getInstalledMods,
   toggleMod,
@@ -169,10 +170,11 @@ export default function InstalledModList() {
                 const unmanaged = await listUnmanagedMods();
                 let doClean = false;
                 if (unmanaged.length > 0) {
-                  doClean = window.confirm(
+                  doClean = await confirm(
                     `The following ${unmanaged.length} mod(s) are not managed by Macheim and will be removed:\n\n` +
                     unmanaged.join("\n") +
-                    "\n\nProceed with cleanup?"
+                    "\n\nProceed with cleanup?",
+                    { title: "Remove Unmanaged Mods?", kind: "warning" }
                   );
                 }
                 const result = await syncMods(doClean);
