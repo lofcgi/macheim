@@ -39,12 +39,13 @@ export interface PackageDetail {
 export interface InstalledMod {
   full_name: string;
   name: string;
-  owner: string;
+  author: string;
   version: string;
   enabled: boolean;
   description: string;
   icon: string;
   dependencies: string[];
+  installed_at: string;
 }
 
 export interface Profile {

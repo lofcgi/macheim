@@ -90,12 +90,14 @@ export default function InstalledModList() {
   };
 
   const filtered = localSearch.trim()
-    ? installedMods.filter(
-        (m) =>
-          m.name.toLowerCase().includes(localSearch.toLowerCase()) ||
-          m.full_name.toLowerCase().includes(localSearch.toLowerCase()) ||
-          m.owner.toLowerCase().includes(localSearch.toLowerCase())
-      )
+    ? installedMods.filter((m) => {
+        const q = localSearch.toLowerCase();
+        return (
+          m.name.toLowerCase().includes(q) ||
+          m.full_name.toLowerCase().includes(q) ||
+          m.author.toLowerCase().includes(q)
+        );
+      })
     : installedMods;
 
   const enabledCount = installedMods.filter((m) => m.enabled).length;
@@ -247,7 +249,7 @@ export default function InstalledModList() {
                 )}
               </div>
               <p className="text-xs text-[var(--color-text-muted)] truncate">
-                by {mod.owner}
+                by {mod.author}
               </p>
             </div>
 
