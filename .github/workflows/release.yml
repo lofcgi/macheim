@@ -43,7 +43,7 @@ jobs:
         run: npm install
 
       - name: Build and release
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
@@ -57,7 +57,17 @@ jobs:
             ### Installation
             1. Download the `.dmg` file for your Mac
             2. Open and drag **Macheim** to Applications
-            3. If blocked by Gatekeeper: System Settings → Privacy & Security → Open Anyway
+            3. Open **System Settings → Privacy & Security** and click **Open Anyway** if macOS blocks the app
+
+            This release is ad-hoc signed, but not Apple-notarized. If macOS reports that
+            Macheim is damaged and does not offer **Open Anyway**, run:
+
+            ```sh
+            xattr -cr /Applications/Macheim.app
+            ```
+
+            Then open Macheim normally. Only use this command after confirming that you
+            downloaded the app from this repository's Releases page.
 
             **Apple Silicon (M1/M2/M3/M4):** Download `aarch64.dmg`
             **Intel Mac:** Download `x86_64.dmg`

@@ -47,11 +47,11 @@ A native macOS mod manager for [Valheim](https://store.steampowered.com/app/8929
 
 1. Download `Macheim.dmg` from the [Releases](https://github.com/lofcgi/macheim/releases) page
 2. Open the DMG and drag **Macheim** to your Applications folder
-3. **Important:** The app is not code-signed yet, so macOS will block it. Open Terminal and run:
+3. **Important:** The app is ad-hoc signed, but not Apple-notarized, so macOS may block it. First try **System Settings → Privacy & Security → Open Anyway**. If macOS instead reports that the app is damaged, open Terminal and run:
    ```bash
    xattr -cr /Applications/Macheim.app
    ```
-4. Now open Macheim normally. If macOS still blocks it, go to **System Settings > Privacy & Security** and click **Open Anyway**
+4. Now open Macheim normally. Only remove the quarantine attribute after confirming that you downloaded Macheim from this repository's Releases page.
 
 ### Build from Source
 
