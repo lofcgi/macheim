@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type {
   ThunderstorePackage,
   InstalledMod,
+  ModUpdate,
   SortOption,
   SortDirection,
 } from "../lib/types";
@@ -9,6 +10,7 @@ import type {
 interface ModState {
   packages: ThunderstorePackage[];
   installedMods: InstalledMod[];
+  availableUpdates: ModUpdate[];
   searchQuery: string;
   sortBy: SortOption;
   sortDirection: SortDirection;
@@ -19,6 +21,7 @@ interface ModState {
 
   setPackages: (packages: ThunderstorePackage[]) => void;
   setInstalledMods: (mods: InstalledMod[]) => void;
+  setAvailableUpdates: (updates: ModUpdate[]) => void;
   setSearchQuery: (query: string) => void;
   setSortBy: (sort: SortOption) => void;
   setSortDirection: (dir: SortDirection) => void;
@@ -33,6 +36,7 @@ interface ModState {
 export const useModStore = create<ModState>((set, get) => ({
   packages: [],
   installedMods: [],
+  availableUpdates: [],
   searchQuery: "",
   sortBy: "downloads",
   sortDirection: "desc",
@@ -43,6 +47,7 @@ export const useModStore = create<ModState>((set, get) => ({
 
   setPackages: (packages) => set({ packages }),
   setInstalledMods: (mods) => set({ installedMods: mods }),
+  setAvailableUpdates: (updates) => set({ availableUpdates: updates }),
   setSearchQuery: (query) => set({ searchQuery: query }),
   setSortBy: (sort) => set({ sortBy: sort }),
   setSortDirection: (dir) => set({ sortDirection: dir }),

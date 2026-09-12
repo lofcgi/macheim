@@ -7,6 +7,7 @@ import {
   PowerOff,
   RefreshCw,
   Loader2,
+  ArrowUpCircle,
 } from "lucide-react";
 import { ListSkeleton } from "../common/LoadingSkeleton";
 import { useModStore } from "../../store/modStore";
@@ -18,11 +19,15 @@ import {
   uninstallMod,
   syncMods,
   listUnmanagedMods,
+  checkModUpdates,
+  updateMod,
 } from "../../lib/tauri";
 
 export default function InstalledModList() {
   const installedMods = useModStore((s) => s.installedMods);
   const setInstalledMods = useModStore((s) => s.setInstalledMods);
+  const availableUpdates = useModStore((s) => s.availableUpdates);
+  const setAvailableUpdates = useModStore((s) => s.setAvailableUpdates);
   const isLoading = useModStore((s) => s.isLoadingInstalled);
   const setLoading = useModStore((s) => s.setLoadingInstalled);
   const addToast = useAppStore((s) => s.addToast);
@@ -30,6 +35,19 @@ export default function InstalledModList() {
   const [togglingMod, setTogglingMod] = useState<string | null>(null);
   const [uninstallingMod, setUninstallingMod] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [updatingMod, setUpdatingMod] = useState<string | null>(null);
+  const [updatingAll, setUpdatingAll] = useState(false);
+  const [batchProgress, setBatchProgress] = useState<{
+    current: number;
+    total: number;
+    name: string;
+  } | null>(null);
+
+  // Map full_name -> latest_version for quick lookup in the list.
+  const updateMap = new Map(
+    availableUpdates.map((u) => [u.full_name, u.latest_version])
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -48,12 +66,74 @@ export default function InstalledModList() {
       } finally {
         if (!cancelled) setLoading(false);
       }
+
+      // Check for available mod updates in the background.
+      if (!cancelled) setCheckingUpdates(true);
+      try {
+        const updates = await checkModUpdates();
+        if (!cancelled) setAvailableUpdates(updates);
+      } catch {
+        // Non-fatal: leave updates empty if the check fails (e.g. offline).
+      } finally {
+        if (!cancelled) setCheckingUpdates(false);
+      }
     }
     load();
     return () => {
       cancelled = true;
     };
-  }, [setInstalledMods, setLoading, addToast]);
+  }, [setInstalledMods, setAvailableUpdates, setLoading, addToast]);
+
+  const handleUpdate = async (fullName: string, name: string) => {
+    setUpdatingMod(fullName);
+    try {
+      await updateMod(fullName);
+      addToast({ type: "success", message: `Updated ${name}` });
+      const mods = await getInstalledMods();
+      setInstalledMods(mods);
+      setAvailableUpdates(availableUpdates.filter((u) => u.full_name !== fullName));
+    } catch (err) {
+      addToast({ type: "error", message: `Failed to update ${name}: ${err}` });
+    } finally {
+      setUpdatingMod(null);
+    }
+  };
+
+  const handleUpdateAll = async () => {
+    const targets = [...availableUpdates];
+    const total = targets.length;
+    setUpdatingAll(true);
+    let succeeded = 0;
+    let failed = 0;
+    for (let i = 0; i < targets.length; i++) {
+      const u = targets[i];
+      setBatchProgress({ current: i + 1, total, name: u.name });
+      setUpdatingMod(u.full_name);
+      try {
+        // silent: suppress the per-mod progress overlay; the batch indicator
+        // and a single summary toast cover the whole run instead.
+        await updateMod(u.full_name, true);
+        succeeded++;
+      } catch {
+        failed++;
+      }
+    }
+    setUpdatingMod(null);
+    setBatchProgress(null);
+    try {
+      const mods = await getInstalledMods();
+      setInstalledMods(mods);
+      const remaining = await checkModUpdates();
+      setAvailableUpdates(remaining);
+    } catch {
+      /* ignore refresh errors */
+    }
+    addToast({
+      type: failed > 0 ? "warning" : "success",
+      message: `Updated ${succeeded} of ${total} mod(s)${failed > 0 ? `, ${failed} failed` : ""}`,
+    });
+    setUpdatingAll(false);
+  };
 
   const handleToggle = async (fullName: string, currentEnabled: boolean) => {
     setTogglingMod(fullName);
@@ -162,7 +242,45 @@ export default function InstalledModList() {
             </span>
           )}
 
+          {batchProgress ? (
+            <span className="flex items-center gap-1.5 text-[var(--color-accent-primary)] font-medium min-w-0">
+              <Loader2 size={12} className="animate-spin shrink-0" />
+              <span className="truncate">
+                Updating {batchProgress.name} — {batchProgress.current}/{batchProgress.total}
+              </span>
+            </span>
+          ) : availableUpdates.length > 0 ? (
+            <span className="flex items-center gap-1 text-[var(--color-accent-primary)] font-medium">
+              <ArrowUpCircle size={12} />
+              {availableUpdates.length} update{availableUpdates.length > 1 ? "s" : ""} available
+            </span>
+          ) : checkingUpdates ? (
+            <span className="flex items-center gap-1 text-[var(--color-text-muted)]">
+              <Loader2 size={12} className="animate-spin" />
+              Checking updates...
+            </span>
+          ) : null}
+
           <div className="flex-1" />
+
+          {availableUpdates.length > 0 && (
+            <button
+              onClick={handleUpdateAll}
+              disabled={updatingAll || updatingMod !== null}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium
+                bg-[var(--color-accent-primary)] text-white hover:opacity-90
+                transition-all cursor-pointer disabled:opacity-60"
+            >
+              {updatingAll ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <ArrowUpCircle size={12} />
+              )}
+              {updatingAll
+                ? `Updating ${batchProgress?.current ?? 0}/${batchProgress?.total ?? availableUpdates.length}`
+                : `Update all (${availableUpdates.length})`}
+            </button>
+          )}
 
           <button
             onClick={async () => {
@@ -245,6 +363,12 @@ export default function InstalledModList() {
                 <span className="text-xs text-[var(--color-text-muted)] font-mono shrink-0">
                   v{mod.version}
                 </span>
+                {updateMap.has(mod.full_name) && (
+                  <span className="flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-accent-primary)]/15 text-[var(--color-accent-primary)] font-medium shrink-0">
+                    <ArrowUpCircle size={10} />
+                    v{updateMap.get(mod.full_name)}
+                  </span>
+                )}
                 {!mod.enabled && (
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-text-muted)]/15 text-[var(--color-text-muted)] font-medium">
                     DISABLED
@@ -255,6 +379,25 @@ export default function InstalledModList() {
                 by {mod.author}
               </p>
             </div>
+
+            {/* Update */}
+            {updateMap.has(mod.full_name) && (
+              <button
+                onClick={() => handleUpdate(mod.full_name, mod.name)}
+                disabled={updatingMod === mod.full_name || updatingAll}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium shrink-0
+                  bg-[var(--color-accent-primary)] text-white hover:opacity-90
+                  transition-all cursor-pointer disabled:opacity-60"
+                title={`Update to v${updateMap.get(mod.full_name)}`}
+              >
+                {updatingMod === mod.full_name ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <ArrowUpCircle size={12} />
+                )}
+                {updatingMod === mod.full_name ? "Updating" : "Update"}
+              </button>
+            )}
 
             {/* Toggle */}
             <button

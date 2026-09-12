@@ -13,6 +13,7 @@ import type {
   BackupInfo,
   CompatibilityStatus,
   CompatibilitySettings,
+  ModUpdate,
 } from "./types";
 
 // ── Game Detection ──────────────────────────────────────────────
@@ -87,6 +88,14 @@ export async function syncMods(cleanUnmanaged = false, approvedUnmanaged: string
 
 export async function listUnmanagedMods(): Promise<string[]> {
   return invoke<string[]>("list_unmanaged_mods");
+}
+
+export async function checkModUpdates(): Promise<ModUpdate[]> {
+  return invoke<ModUpdate[]>("check_mod_updates");
+}
+
+export async function updateMod(fullName: string, silent = false): Promise<InstalledMod> {
+  return invoke<InstalledMod>("update_mod", { fullName, silent });
 }
 
 // ── Profiles ────────────────────────────────────────────────────

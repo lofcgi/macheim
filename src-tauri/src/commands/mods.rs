@@ -279,6 +279,286 @@ pub async fn install_mod(
     Ok(installed_mods)
 }
 
+/// Info about an available update for an installed mod.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ModUpdate {
+    pub full_name: String,
+    pub name: String,
+    pub current_version: String,
+    pub latest_version: String,
+}
+
+/// Compare two version strings. Returns true if `latest` is strictly newer than
+/// `current`. Uses semver where possible, falling back to a plain string
+/// inequality for non-standard version strings.
+fn is_newer(current: &str, latest: &str) -> bool {
+    match (
+        semver::Version::parse(current),
+        semver::Version::parse(latest),
+    ) {
+        (Ok(c), Ok(l)) => l > c,
+        // If either side is unparseable, treat any difference as an update.
+        _ => current != latest,
+    }
+}
+
+/// Check installed mods against the Thunderstore catalog and return the ones
+/// that have a newer version available. Fetches the package cache if needed.
+#[tauri::command]
+pub async fn check_mod_updates(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> AppResult<Vec<ModUpdate>> {
+    info!("Command: check_mod_updates");
+
+    let (packages, active_profile) = {
+        let s = state
+            .lock()
+            .map_err(|e| AppError::Mod(format!("Lock: {}", e)))?;
+        (s.thunderstore_cache.clone(), s.active_profile.clone())
+    };
+
+    // Ensure we have the catalog to compare against.
+    let packages = match packages {
+        Some(p) => p,
+        None => {
+            let p = thunderstore_client::fetch_packages(false).await?;
+            let mut s = state
+                .lock()
+                .map_err(|e| AppError::Mod(format!("Lock: {}", e)))?;
+            s.thunderstore_cache = Some(p.clone());
+            p
+        }
+    };
+
+    let profile = profile_manager::load_profile(&active_profile)?;
+
+    let mut updates = Vec::new();
+    for m in &profile.mods {
+        // Skip manually installed mods whose version is unverified.
+        if m.version == "0.0.0" {
+            continue;
+        }
+        if let Some(pkg) = thunderstore_client::find_package(&packages, &m.full_name) {
+            if pkg.is_deprecated {
+                continue;
+            }
+            if let Some(latest) = pkg.versions.first() {
+                if is_newer(&m.version, &latest.version_number) {
+                    updates.push(ModUpdate {
+                        full_name: m.full_name.clone(),
+                        name: m.name.clone(),
+                        current_version: m.version.clone(),
+                        latest_version: latest.version_number.clone(),
+                    });
+                }
+            }
+        }
+    }
+
+    info!("{} mod update(s) available", updates.len());
+    Ok(updates)
+}
+
+/// Update a single installed mod to the latest available version.
+/// Reinstalls the newest release over the old one, pulls any new dependencies,
+/// preserves the enabled/disabled state, and updates the profile entry.
+#[tauri::command]
+pub async fn update_mod(
+    full_name: String,
+    silent: Option<bool>,
+    state: tauri::State<'_, Mutex<AppState>>,
+    app: tauri::AppHandle,
+) -> AppResult<InstalledMod> {
+    info!("Command: update_mod({})", full_name);
+    // When updating as part of a batch ("Update all"), suppress the per-mod
+    // progress overlay so it doesn't flash once per mod. The caller shows a
+    // single consolidated indicator instead.
+    let silent = silent.unwrap_or(false);
+    let _operation = crate::lock_operation(&state)?;
+    crate::services::launcher::ensure_game_stopped()?;
+    profile_manager::validate_name(&full_name)?;
+
+    let (game_path, packages, active_profile) = {
+        let s = state
+            .lock()
+            .map_err(|e| AppError::Mod(format!("Failed to lock state: {}", e)))?;
+        let game_path = s
+            .game_path
+            .clone()
+            .ok_or_else(|| AppError::Mod("Game path not set".to_string()))?;
+        let packages = s
+            .thunderstore_cache
+            .clone()
+            .ok_or_else(|| AppError::Mod("Package cache not loaded".to_string()))?;
+        (game_path, packages, s.active_profile.clone())
+    };
+
+    let game_root = game_detector::get_valheim_root(&game_path);
+
+    let target_pkg = thunderstore_client::find_package(&packages, &full_name)
+        .ok_or_else(|| AppError::Mod(format!("Package '{}' not found", full_name)))?;
+    let latest = target_pkg
+        .versions
+        .first()
+        .ok_or_else(|| AppError::Mod("No version available".to_string()))?;
+
+    // Preserve the mod's previous enabled state.
+    let profile = profile_manager::load_profile(&active_profile)?;
+    let prev_enabled = profile
+        .mods
+        .iter()
+        .find(|m| m.full_name == full_name)
+        .map(|m| m.enabled)
+        .unwrap_or(true);
+    let installed_set: HashSet<String> =
+        profile.mods.iter().map(|m| m.full_name.clone()).collect();
+
+    // Install any NEW dependencies the updated version introduces.
+    if !silent {
+        emit_progress(
+            &app,
+            "resolving",
+            &full_name,
+            0,
+            0,
+            0,
+            None,
+            "Resolving dependencies...",
+        );
+    }
+    let deps = dependency_resolver::resolve_dependencies(
+        &full_name,
+        &latest.version_number,
+        &packages,
+        &installed_set,
+    )?;
+    let total_items = deps.len() + 1;
+
+    for (idx, dep) in deps.iter().enumerate() {
+        if installed_set.contains(&dep.full_name) {
+            continue;
+        }
+        if !silent {
+            emit_progress(
+                &app,
+                "downloading",
+                &dep.full_name,
+                idx + 1,
+                total_items,
+                0,
+                None,
+                &format!("Downloading {} ({}/{})", dep.name, idx + 1, total_items),
+            );
+        }
+        let dep_zip = thunderstore_client::download_mod(&dep.download_url).await?;
+        let dep_pkg = thunderstore_client::find_package(&packages, &dep.full_name);
+        let dep_dependencies: Vec<String> = dep_pkg
+            .and_then(|p| p.versions.first())
+            .map(|v| v.dependencies.clone())
+            .unwrap_or_default();
+        let installed = mod_installer::install_mod_from_bytes(
+            &dep.author,
+            &dep.name,
+            &dep.version,
+            &dep.description,
+            &dep.icon,
+            &dep_dependencies,
+            &dep_zip,
+            &game_root,
+        )?;
+        profile_manager::add_mod_to_profile(&active_profile, installed)?;
+    }
+
+    // Download and reinstall the target mod at the latest version.
+    if !silent {
+        emit_progress(
+            &app,
+            "downloading",
+            &full_name,
+            total_items,
+            total_items,
+            0,
+            None,
+            &format!("Downloading {} v{}", target_pkg.name, latest.version_number),
+        );
+    }
+    let app_clone = app.clone();
+    let fn_clone = full_name.clone();
+    let target_zip = thunderstore_client::download_mod_with_progress(
+        &latest.download_url,
+        Some(Box::new(move |downloaded, total| {
+            if !silent {
+                emit_progress(
+                    &app_clone,
+                    "downloading",
+                    &fn_clone,
+                    total_items,
+                    total_items,
+                    downloaded,
+                    total,
+                    "Downloading...",
+                );
+            }
+        })),
+    )
+    .await?;
+
+    if !silent {
+        emit_progress(
+            &app,
+            "installing",
+            &full_name,
+            total_items,
+            total_items,
+            0,
+            None,
+            &format!("Updating {}", target_pkg.name),
+        );
+    }
+
+    // Remove the old files first so stale DLLs don't linger, then install fresh.
+    mod_installer::uninstall_mod(&full_name, &game_root)?;
+    let mut installed = mod_installer::install_mod_from_bytes(
+        &target_pkg.owner,
+        &target_pkg.name,
+        &latest.version_number,
+        &latest.description,
+        &latest.icon,
+        &latest.dependencies,
+        &target_zip,
+        &game_root,
+    )?;
+
+    // Restore the previous disabled state if the mod was disabled before.
+    if !prev_enabled {
+        mod_installer::toggle_mod(&full_name, false, &game_root)?;
+        installed.enabled = false;
+    }
+
+    profile_manager::add_mod_to_profile(&active_profile, installed.clone())?;
+
+    if !silent {
+        emit_progress(
+            &app,
+            "done",
+            &full_name,
+            total_items,
+            total_items,
+            0,
+            None,
+            &format!("Updated {} to v{}", target_pkg.name, latest.version_number),
+        );
+    }
+
+    crate::services::compatibility::reconcile(
+        &profile_manager::load_profile(&active_profile)?,
+        &game_root,
+    )?;
+
+    info!("Updated {} to v{}", full_name, latest.version_number);
+    Ok(installed)
+}
+
 /// Uninstall a mod.
 #[tauri::command]
 pub async fn uninstall_mod(

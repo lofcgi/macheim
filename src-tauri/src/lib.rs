@@ -115,6 +115,8 @@ pub fn run() {
             commands::mods::install_modpack,
             commands::mods::sync_mods,
             commands::mods::list_unmanaged_mods,
+            commands::mods::check_mod_updates,
+            commands::mods::update_mod,
             // Profiles
             commands::profiles::list_profiles,
             commands::profiles::create_profile,

@@ -48,6 +48,13 @@ export interface InstalledMod {
   installed_at: string;
 }
 
+export interface ModUpdate {
+  full_name: string;
+  name: string;
+  current_version: string;
+  latest_version: string;
+}
+
 export interface Profile {
   name: string;
   description: string;
