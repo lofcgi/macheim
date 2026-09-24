@@ -1,0 +1,22 @@
+import { afterEach, expect, test, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { invoke } from "@tauri-apps/api/core";
+import { getPackageDetails, getInstalledMods } from "../../lib/tauri";
+import { useModStore } from "../../store/modStore";
+import ModDetail from "./ModDetail";
+vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
+vi.mock("../../lib/tauri", async original => ({ ...await original<typeof import("../../lib/tauri")>(), getPackageDetails: vi.fn(), getInstalledMods: vi.fn() }));
+vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn().mockResolvedValue(true) }));
+afterEach(() => { cleanup(); vi.clearAllMocks(); });
+test("an older selected version is sent explicitly for an already installed mod", async () => {
+  const pkg = { name: "Mod", full_name: "Team-Mod", owner: "Team", description: "", version_number: "2.0.0", rating_score: 0, downloads: 1, is_deprecated: false, icon: "", categories: [], date_updated: "" };
+  const mod = { ...pkg, author: "Team", version: "2.0.0", enabled: false, dependencies: [], installed_at: "" };
+  useModStore.setState({ installedMods: [mod], isInstallingMod: null });
+  vi.mocked(getPackageDetails).mockResolvedValue({ ...pkg, package_url: "https://thunderstore.io/", versions: ["2.0.0", "1.0.0"].map(version => ({ name: "Mod", full_name: `Team-Mod-${version}`, version_number: version, dependencies: [], download_url: "", downloads: 1, description: "", icon: "", date_created: "" })) });
+  vi.mocked(invoke).mockResolvedValue([mod]);
+  vi.mocked(getInstalledMods).mockResolvedValue([mod]);
+  render(<ModDetail pkg={pkg} onClose={() => {}} />);
+  fireEvent.change(await screen.findByLabelText("Version to install"), { target: { value: "1.0.0" } });
+  fireEvent.click(screen.getByRole("button", { name: "Install v1.0.0" }));
+  await waitFor(() => expect(invoke).toHaveBeenCalledWith("change_mod_version", { fullName: "Team-Mod", version: "1.0.0" }));
+});

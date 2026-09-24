@@ -87,12 +87,22 @@ pub async fn set_game_path(
     info!("Command: set_game_path({})", path);
     let _operation = crate::lock_operation(&state)?;
 
-    let path_buf = std::path::PathBuf::from(&path);
-    if !path_buf.exists() {
-        return Err(crate::error::AppError::GameNotFound(format!(
-            "Path does not exist: {}",
-            path
-        )));
+    crate::services::launcher::ensure_game_stopped()?;
+    let path_buf = game_detector::normalize_game_path(std::path::Path::new(&path))?;
+
+    let previous = {
+        let s = state
+            .lock()
+            .map_err(|e| crate::error::AppError::GameNotFound(e.to_string()))?;
+        (s.game_path.clone(), s.active_profile.clone())
+    };
+    if let Some(old_path) = &previous.0 {
+        if old_path != &path_buf {
+            profile_manager::save_game_state_to_profile(
+                &previous.1,
+                &game_detector::get_valheim_root(old_path),
+            )?;
+        }
     }
 
     let game_root = game_detector::get_valheim_root(&path_buf);
@@ -100,6 +110,7 @@ pub async fn set_game_path(
         crate::services::bepinex_installer::check_bepinex_status(&game_root).installed;
 
     let active_profile = profile_manager::initialize_game_profile(&game_root)?;
+    game_detector::save_game_path(&path_buf)?;
 
     let mut state = state.lock().map_err(|e| {
         crate::error::AppError::GameNotFound(format!("Failed to lock state: {}", e))
@@ -107,6 +118,8 @@ pub async fn set_game_path(
     state.game_path = Some(path_buf.clone());
     state.bepinex_installed = bepinex_installed;
     state.active_profile = active_profile;
+    state.thunderstore_cache = None;
+    state.cache_updated_at = None;
 
     let status = game_detector::get_game_status_info(
         &Some(path_buf),

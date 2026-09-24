@@ -12,15 +12,14 @@ import { useProfileStore } from "../../store/profileStore";
 import ModDetail from "../mods/ModDetail";
 import { useAppStore } from "../../store/appStore";
 import { useModStore } from "../../store/modStore";
-import { fetchPackages, getInstalledMods } from "../../lib/tauri";
+import { getInstalledMods } from "../../lib/tauri";
+import { loadCatalog } from "../../lib/catalog";
 
 export default function MainLayout() {
   const activeProfile = useProfileStore(s => s.activeProfile);
   const currentPage = useAppStore((s) => s.currentPage);
   const addToast = useAppStore((s) => s.addToast);
-  const setPackages = useModStore((s) => s.setPackages);
   const setInstalledMods = useModStore((s) => s.setInstalledMods);
-  const setLoadingPackages = useModStore((s) => s.setLoadingPackages);
   const setLoadingInstalled = useModStore((s) => s.setLoadingInstalled);
   const isLoadingPackages = useModStore((s) => s.isLoadingPackages);
   const isLoadingInstalled = useModStore((s) => s.isLoadingInstalled);
@@ -29,18 +28,7 @@ export default function MainLayout() {
 
   const handleRefresh = useCallback(async () => {
     if (currentPage === "browse" || currentPage === "modpacks") {
-      setLoadingPackages(true);
-      try {
-        const pkgs = await fetchPackages();
-        setPackages(pkgs);
-      } catch (err) {
-        addToast({
-          type: "error",
-          message: `Failed to fetch packages: ${err}`,
-        });
-      } finally {
-        setLoadingPackages(false);
-      }
+      await loadCatalog(true);
     } else if (currentPage === "installed") {
       setLoadingInstalled(true);
       try {
@@ -57,8 +45,6 @@ export default function MainLayout() {
     }
   }, [
     currentPage,
-    setLoadingPackages,
-    setPackages,
     setLoadingInstalled,
     setInstalledMods,
     addToast,

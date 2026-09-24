@@ -25,6 +25,10 @@ export async function getGameStatus(): Promise<GameStatus> {
   return invoke<GameStatus>("get_game_status");
 }
 
+export async function setGamePath(path: string): Promise<GameStatus> {
+  return invoke<GameStatus>("set_game_path", { path });
+}
+
 // ── BepInEx ─────────────────────────────────────────────────────
 
 export async function installBepinex(): Promise<void> {
@@ -37,8 +41,8 @@ export async function getBepinexStatus(): Promise<boolean> {
 
 // ── Thunderstore Packages ───────────────────────────────────────
 
-export async function fetchPackages(): Promise<ThunderstorePackage[]> {
-  return invoke<ThunderstorePackage[]>("fetch_packages");
+export async function fetchPackages(forceRefresh = false): Promise<ThunderstorePackage[]> {
+  return invoke<ThunderstorePackage[]>("fetch_packages", { forceRefresh });
 }
 
 export async function searchPackages(
@@ -57,6 +61,14 @@ export async function getPackageDetails(
 
 export async function installMod(fullName: string, version: string): Promise<InstalledMod[]> {
   return invoke<InstalledMod[]>("install_mod", { fullName, version });
+}
+
+export interface ModUpdate { full_name: string; name: string; current_version: string; latest_version: string }
+export async function checkModUpdates(): Promise<ModUpdate[]> {
+  return invoke<ModUpdate[]>("check_mod_updates");
+}
+export async function changeModVersion(fullName: string, version: string): Promise<InstalledMod[]> {
+  return invoke<InstalledMod[]>("change_mod_version", { fullName, version });
 }
 
 export async function uninstallMod(fullName: string): Promise<void> {
@@ -95,13 +107,14 @@ export async function listProfiles(): Promise<Profile[]> {
   return invoke<Profile[]>("list_profiles");
 }
 
-export async function createProfile(name: string): Promise<Profile> {
-  return invoke<Profile>("create_profile", { name });
+export async function createProfile(name: string, catalogSource = "thunderstore"): Promise<Profile> {
+  return invoke<Profile>("create_profile", { name, catalogSource });
 }
 
 export async function switchProfile(name: string): Promise<void> {
   await invoke("switch_profile", { name });
   useProfileStore.getState().setActiveProfile(name);
+  useModStore.setState({ packages: [], selectedPackage: null, packageError: null });
   useAppStore.getState().setGameStatus(await getGameStatus());
   useModStore.getState().setInstalledMods(await getInstalledMods());
   useProfileStore.getState().setProfiles(await listProfiles());

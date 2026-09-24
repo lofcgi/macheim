@@ -11,6 +11,12 @@ const VALHEIM_BUNDLE_ID: &str = "com.coffeestain.valheim-steam";
 /// Detect the Valheim installation on macOS by scanning Steam library folders.
 pub fn detect_valheim() -> AppResult<PathBuf> {
     info!("Detecting Valheim installation...");
+    let saved = super::thunderstore_client::get_app_data_dir().join("game-path.json");
+    if saved.exists() {
+        let path: PathBuf = serde_json::from_slice(&std::fs::read(saved)?)?;
+        return normalize_game_path(&path).map_err(|_| AppError::GameNotFound(
+            "The saved Valheim location is unavailable. Connect its drive or select a new location; no other installation was selected automatically.".into()));
+    }
 
     // 1. Try parsing Steam libraryfolders.vdf for all library paths
     let library_paths = get_steam_library_paths();
@@ -19,7 +25,9 @@ pub fn detect_valheim() -> AppResult<PathBuf> {
         debug!("Checking Steam library: {}", lib_path.display());
 
         // Check for Valheim app manifest
-        let manifest = lib_path.join("steamapps").join(format!("appmanifest_{}.acf", VALHEIM_APP_ID));
+        let manifest = lib_path
+            .join("steamapps")
+            .join(format!("appmanifest_{}.acf", VALHEIM_APP_ID));
         if manifest.exists() {
             let valheim_path = lib_path
                 .join("steamapps")
@@ -56,13 +64,10 @@ pub fn detect_valheim() -> AppResult<PathBuf> {
         if valheim_dir.exists() && valheim_dir.is_dir() {
             // Check if there's a valheim.app inside
             let app_path = valheim_dir.join("valheim.app");
-            if app_path.exists() {
+            if normalize_game_path(&app_path).is_ok() {
                 info!("Found Valheim app bundle at: {}", app_path.display());
                 return Ok(app_path);
             }
-            // If no .app but directory exists, return the directory
-            info!("Found Valheim directory at: {}", valheim_dir.display());
-            return Ok(valheim_dir);
         }
     }
 
@@ -70,6 +75,48 @@ pub fn detect_valheim() -> AppResult<PathBuf> {
         "Could not find Valheim installation. Please ensure Valheim is installed via Steam."
             .to_string(),
     ))
+}
+
+/// Accept only a real Valheim app, its containing folder, or a Steam library.
+/// Never accept an arbitrary directory as a BepInEx installation target.
+pub fn normalize_game_path(path: &std::path::Path) -> AppResult<PathBuf> {
+    let candidates = [
+        path.to_path_buf(),
+        path.join("valheim.app"),
+        path.join("Valheim.app"),
+        path.join("steamapps/common/Valheim/valheim.app"),
+    ];
+    for candidate in candidates {
+        if candidate.extension().is_none_or(|ext| ext != "app") {
+            continue;
+        }
+        let plist = candidate.join("Contents/Info.plist");
+        if let Ok(plist::Value::Dictionary(dict)) = plist::Value::from_file(plist) {
+            let id = dict
+                .get("CFBundleIdentifier")
+                .and_then(plist::Value::as_string);
+            let executable = dict
+                .get("CFBundleExecutable")
+                .and_then(plist::Value::as_string);
+            if id == Some(VALHEIM_BUNDLE_ID)
+                && executable.is_some_and(|exe| {
+                    !exe.contains('/')
+                        && !exe.contains('\\')
+                        && candidate.join("Contents/MacOS").join(exe).is_file()
+                })
+            {
+                return Ok(std::fs::canonicalize(candidate)?);
+            }
+        }
+    }
+    Err(AppError::GameNotFound("Select valheim.app, its containing Valheim folder, or its Steam library. The selected location is not a valid Steam Valheim installation.".into()))
+}
+
+pub fn save_game_path(path: &std::path::Path) -> AppResult<()> {
+    super::compatibility::atomic_write(
+        &super::thunderstore_client::get_app_data_dir().join("game-path.json"),
+        &serde_json::to_vec(path)?,
+    )
 }
 
 /// Get the root directory containing the valheim.app (or the game dir itself).
@@ -134,38 +181,7 @@ fn get_default_valheim_path() -> PathBuf {
 
 /// Validate the app bundle by checking Info.plist for the correct CFBundleIdentifier.
 fn validate_valheim_app(app_path: &PathBuf) -> bool {
-    let info_plist = app_path.join("Contents/Info.plist");
-    if !info_plist.exists() {
-        debug!("Info.plist not found at {}", info_plist.display());
-        // Still return true if .app exists -- some builds may not have the expected bundle ID
-        return app_path.exists();
-    }
-
-    match plist::Value::from_file(&info_plist) {
-        Ok(plist::Value::Dictionary(dict)) => {
-            if let Some(plist::Value::String(bundle_id)) = dict.get("CFBundleIdentifier") {
-                let matches = bundle_id == VALHEIM_BUNDLE_ID;
-                if !matches {
-                    debug!(
-                        "Bundle ID mismatch: expected {}, got {}",
-                        VALHEIM_BUNDLE_ID, bundle_id
-                    );
-                }
-                matches
-            } else {
-                warn!("CFBundleIdentifier not found in Info.plist");
-                true // Be lenient
-            }
-        }
-        Ok(_) => {
-            warn!("Info.plist is not a dictionary");
-            true
-        }
-        Err(e) => {
-            warn!("Failed to parse Info.plist: {}", e);
-            true // Be lenient -- plist format might differ
-        }
-    }
+    normalize_game_path(app_path).is_ok()
 }
 
 /// Get the game status information for the frontend.
@@ -177,7 +193,11 @@ pub struct GameStatus {
     pub active_profile: String,
 }
 
-pub fn get_game_status_info(game_path: &Option<PathBuf>, bepinex_installed: bool, active_profile: &str) -> GameStatus {
+pub fn get_game_status_info(
+    game_path: &Option<PathBuf>,
+    bepinex_installed: bool,
+    active_profile: &str,
+) -> GameStatus {
     match game_path {
         Some(path) => GameStatus {
             installed: true,
@@ -212,5 +232,39 @@ fn read_game_version(app_path: &PathBuf) -> Option<String> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn validates_external_paths_and_rejects_unrelated_folders() {
+        let drive = tempfile::tempdir().unwrap();
+        let root = drive
+            .path()
+            .join("External Library/steamapps/common/Valheim");
+        let app = root.join("valheim.app");
+        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        assert!(normalize_game_path(&root).is_err());
+        std::fs::write(app.join("Contents/MacOS/Valheim"), b"fixture").unwrap();
+        let mut dict = plist::Dictionary::new();
+        dict.insert("CFBundleIdentifier".into(), VALHEIM_BUNDLE_ID.into());
+        dict.insert("CFBundleExecutable".into(), "Valheim".into());
+        plist::Value::Dictionary(dict)
+            .to_file_xml(app.join("Contents/Info.plist"))
+            .unwrap();
+        let canonical = std::fs::canonicalize(&app).unwrap();
+        assert_eq!(normalize_game_path(&app).unwrap(), canonical);
+        assert_eq!(normalize_game_path(&root).unwrap(), canonical);
+        assert_eq!(
+            normalize_game_path(&drive.path().join("External Library")).unwrap(),
+            canonical
+        );
+        assert!(normalize_game_path(drive.path()).is_err());
+        assert_eq!(
+            get_valheim_root(&canonical),
+            std::fs::canonicalize(root).unwrap()
+        );
     }
 }

@@ -39,6 +39,7 @@ export default function ProfileManager() {
 
   const [isCreating, setIsCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  const [catalogSource, setCatalogSource] = useState("thunderstore");
   const [deletingProfile, setDeletingProfile] = useState<string | null>(null);
 
   useEffect(() => {
@@ -58,7 +59,7 @@ export default function ProfileManager() {
     if (!name) return;
 
     try {
-      const profile = await createProfile(name);
+      const profile = await createProfile(name, catalogSource);
       setProfiles([...profiles, profile]);
       setNewName("");
       setIsCreating(false);
@@ -136,6 +137,10 @@ export default function ProfileManager() {
       {/* Create form */}
       {isCreating && (
         <div className="flex items-center gap-2 mb-4 p-3 rounded-lg border border-[var(--color-accent-primary)]/30 bg-[var(--color-accent-primary)]/5">
+          <select aria-label="Mod catalog" value={catalogSource} onChange={e => setCatalogSource(e.target.value)} className="bg-[var(--color-bg-input)] p-2 rounded">
+            <option value="thunderstore">Thunderstore</option>
+            <option value="hexium">Hexium</option>
+          </select>
           <input
             type="text"
             value={newName}
@@ -215,6 +220,7 @@ export default function ProfileManager() {
                   <h4 className="text-sm font-semibold text-[var(--color-text-primary)]">
                     {profile.name}
                   </h4>
+                  <span className="text-xs text-[var(--color-text-muted)]">{profile.catalog_source === "hexium" ? "Hexium" : "Thunderstore"}</span>
                   {isActive && (
                     <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-[var(--color-accent-primary)]/20 text-[var(--color-accent-primary)]">
                       Active

@@ -11,6 +11,7 @@ import {
 import ProgressBar from "../common/ProgressBar";
 import { detectGame, installBepinex, getGameStatus } from "../../lib/tauri";
 import { useAppStore } from "../../store/appStore";
+import GameLocationPicker from "./GameLocationPicker";
 
 type Step = "detect" | "bepinex" | "ready";
 
@@ -345,9 +346,14 @@ export default function SetupWizard() {
           )}
         </div>
 
+        {!detecting && !installing && step !== "ready" && <GameLocationPicker onSelected={status => {
+          setGameStatus(status); setGamePath(status.game_path); setDetectError(null); setInstallError(null);
+          setStep(status.bepinex_installed ? "ready" : "bepinex");
+        }} />}
+
         {/* Footer */}
         <p className="text-center text-xs text-[var(--color-text-muted)] mt-6">
-          Built for macOS &middot; Macheim v1.1.0
+          Built for macOS &middot; Macheim v1.2.0
         </p>
       </div>
     </div>

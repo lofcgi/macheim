@@ -19,12 +19,15 @@ pub async fn list_profiles(_state: tauri::State<'_, Mutex<AppState>>) -> AppResu
 pub async fn create_profile(
     name: String,
     description: Option<String>,
+    catalog_source: Option<crate::models::profile::CatalogSource>,
     _state: tauri::State<'_, Mutex<AppState>>,
 ) -> AppResult<Profile> {
     info!("Command: create_profile({})", name);
 
     let desc = description.unwrap_or_default();
-    let profile = profile_manager::create_profile(&name, &desc)?;
+    let mut profile = profile_manager::create_profile(&name, &desc)?;
+    profile.catalog_source = catalog_source.unwrap_or_default();
+    profile_manager::save_profile(&profile)?;
     Ok(profile)
 }
 
@@ -89,6 +92,8 @@ pub async fn switch_profile(
         .lock()
         .map_err(|e| AppError::Profile(format!("Failed to lock state: {}", e)))?;
     state.active_profile = name;
+    state.thunderstore_cache = None;
+    state.cache_updated_at = None;
 
     Ok(profile)
 }

@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { ListSkeleton } from "../common/LoadingSkeleton";
 import { useModStore } from "../../store/modStore";
+import { checkModUpdates, changeModVersion, type ModUpdate } from "../../lib/tauri";
 import { useAppStore } from "../../store/appStore";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
@@ -30,6 +31,29 @@ export default function InstalledModList() {
   const [togglingMod, setTogglingMod] = useState<string | null>(null);
   const [uninstallingMod, setUninstallingMod] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [updates, setUpdates] = useState<ModUpdate[]>([]);
+  const [checking, setChecking] = useState(false);
+  const [updating, setUpdating] = useState<string | null>(null);
+
+  async function checkUpdates() {
+    setChecking(true);
+    try {
+      const result = await checkModUpdates(); setUpdates(result);
+      addToast({ type: "info", message: result.length ? `${result.length} updates available. Check server/modpack requirements before updating.` : "No newer versions found in this profile's catalog." });
+    } catch (err) { addToast({ type: "error", message: `Update check failed: ${err}` }); }
+    finally { setChecking(false); }
+  }
+
+  async function applyUpdate(update: ModUpdate) {
+    if (!await confirm(`Update ${update.name} from ${update.current_version} to ${update.latest_version}? Your server or modpack may require the current version.`, { title: "Update mod", kind: "warning" })) return;
+    setUpdating(update.full_name);
+    try {
+      setInstalledMods(await changeModVersion(update.full_name, update.latest_version));
+      setUpdates(current => current.filter(item => item.full_name !== update.full_name));
+      addToast({ type: "success", message: `Updated ${update.name}` });
+    } catch (err) { addToast({ type: "error", message: `Update failed: ${err}` }); }
+    finally { setUpdating(null); }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -163,6 +187,7 @@ export default function InstalledModList() {
           )}
 
           <div className="flex-1" />
+          <button onClick={checkUpdates} disabled={checking || updating !== null} className="text-xs underline disabled:opacity-40">{checking ? "Checking updates..." : "Check updates"}</button>
 
           <button
             onClick={async () => {
@@ -257,6 +282,7 @@ export default function InstalledModList() {
             </div>
 
             {/* Toggle */}
+            {updates.filter(u => u.full_name === mod.full_name).map(u => <button key={u.full_name} onClick={() => void applyUpdate(u)} disabled={updating !== null} className="text-xs underline disabled:opacity-40">{updating === u.full_name ? "Updating..." : `Update to ${u.latest_version}`}</button>)}
             <button
               onClick={() => handleToggle(mod.full_name, mod.enabled)}
               disabled={togglingMod === mod.full_name}

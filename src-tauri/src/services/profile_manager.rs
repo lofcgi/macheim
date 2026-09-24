@@ -143,7 +143,7 @@ pub fn initialize_game_profile(root: &Path) -> AppResult<String> {
     let has_live_data = SYNC_DIRS.iter().any(|s| {
         std::fs::read_dir(root.join("BepInEx").join(s)).is_ok_and(|mut e| e.next().is_some())
     });
-    let name = if has_live_data && profiles.len() > 1 {
+    let name = if (has_live_data && profiles.len() > 1) || profiles.iter().any(|p| !p.mods.is_empty()) {
         let name = format!(
             "Recovered-{}",
             chrono::Utc::now().format("%Y%m%d-%H%M%S-%f")
@@ -272,7 +272,7 @@ pub fn import_profile(json: &str, new_name: Option<&str>) -> AppResult<Profile> 
 }
 /// Stage every directory before replacing any data. Restore outgoing directories
 /// on rename failure; retain recovery files if rollback itself cannot complete.
-fn replace_bepinex_dirs(source: &Path, target: &Path) -> AppResult<()> {
+pub(crate) fn replace_bepinex_dirs(source: &Path, target: &Path) -> AppResult<()> {
     reject_symlink_ancestors(source)?;
     reject_symlink_ancestors(target)?;
     std::fs::create_dir_all(target)?;

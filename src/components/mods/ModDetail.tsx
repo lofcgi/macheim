@@ -14,7 +14,8 @@ import {
 import type { ThunderstorePackage, PackageDetail } from "../../lib/types";
 import { useModStore } from "../../store/modStore";
 import { useAppStore } from "../../store/appStore";
-import { installMod, uninstallMod, getInstalledMods, getPackageDetails } from "../../lib/tauri";
+import { changeModVersion, uninstallMod, getInstalledMods, getPackageDetails } from "../../lib/tauri";
+import { confirm } from "@tauri-apps/plugin-dialog";
 
 interface ModDetailProps {
   pkg: ThunderstorePackage;
@@ -49,6 +50,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
   const [detail, setDetail] = useState<PackageDetail | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [selectedVersion, setSelectedVersion] = useState(pkg.version_number);
 
   // Fetch full details on mount
   useEffect(() => {
@@ -74,16 +76,17 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
   );
   const isInstalling = isInstallingMod === pkg.full_name;
 
-  const latestVersion = detail?.versions?.[0];
+  const latestVersion = detail?.versions?.find(v => v.version_number === selectedVersion);
   const dependencies = latestVersion?.dependencies?.filter(
     (d) => !d.startsWith("denikson-BepInExPack")
   ) ?? [];
 
   const handleInstall = async () => {
-    if (isInstalled || isInstalling) return;
+    if (isInstalling || !latestVersion) return;
+    if (isInstalled && !await confirm(`Change ${pkg.name} to v${selectedVersion}? Keep the same versions as your server. Existing configuration and disabled state are preserved.`, { title: "Change mod version", kind: "warning" })) return;
     setInstallingMod(pkg.full_name);
     try {
-      await installMod(pkg.full_name, pkg.version_number);
+      await changeModVersion(pkg.full_name, selectedVersion);
       const mods = await getInstalledMods();
       setInstalledMods(mods);
       addToast({ type: "success", message: `Installed ${pkg.name}` });
@@ -111,7 +114,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
     }
   };
 
-  const thunderstoreUrl = `https://thunderstore.io/c/valheim/p/${pkg.owner}/${pkg.name}/`;
+  const thunderstoreUrl = detail?.package_url ?? `https://thunderstore.io/c/valheim/p/${pkg.owner}/${pkg.name}/`;
 
   return (
     <>
@@ -222,6 +225,13 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
           {/* Version History */}
           {detail && detail.versions.length > 0 && (
             <div>
+              <label htmlFor="mod-version">Version to install</label>
+              <select id="mod-version" value={selectedVersion} onChange={e => setSelectedVersion(e.target.value)} className="w-full my-2 p-2 rounded bg-[var(--color-bg-input)]">
+                {detail.versions.map(v => <option key={v.version_number} value={v.version_number}>{v.version_number}</option>)}
+              </select>
+              <button onClick={handleInstall} disabled={isInstalling || installedMods.some(m => m.full_name === pkg.full_name && m.version === selectedVersion)} className="mb-4 underline disabled:opacity-40">
+                {isInstalling ? "Installing..." : `Install v${selectedVersion}`}
+              </button>
               <h4 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
                 Version History ({detail.versions.length})
               </h4>
@@ -300,7 +310,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
             className="inline-flex items-center gap-1.5 text-sm text-[var(--color-accent-primary)] hover:text-[var(--color-accent-primary-hover)] transition-colors"
           >
             <ExternalLink size={14} />
-            View on Thunderstore
+            View on source website
           </a>
         </div>
 

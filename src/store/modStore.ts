@@ -13,6 +13,7 @@ interface ModState {
   sortBy: SortOption;
   sortDirection: SortDirection;
   isLoadingPackages: boolean;
+  packageError: string | null;
   isLoadingInstalled: boolean;
   isInstallingMod: string | null;
   selectedPackage: ThunderstorePackage | null;
@@ -37,6 +38,7 @@ export const useModStore = create<ModState>((set, get) => ({
   sortBy: "downloads",
   sortDirection: "desc",
   isLoadingPackages: false,
+  packageError: null,
   isLoadingInstalled: false,
   isInstallingMod: null,
   selectedPackage: null,
