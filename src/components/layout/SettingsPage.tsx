@@ -11,6 +11,7 @@ import { useAppStore } from "../../store/appStore";
 import { createBackup, listBackups, restoreBackup } from "../../lib/tauri";
 import type { BackupInfo } from "../../lib/types";
 import GameLocationPicker from "../setup/GameLocationPicker";
+import DownloadSettings from "../settings/DownloadSettings";
 import { useModStore } from "../../store/modStore";
 
 export default function SettingsPage() {
@@ -54,6 +55,7 @@ export default function SettingsPage() {
 
   return (
     <div className="max-w-2xl space-y-6">
+      <DownloadSettings />
       {/* Game Info */}
       <section className="rounded-lg border border-[var(--color-border-default)] bg-[var(--color-bg-card)] p-5">
         <h3 className="text-base font-semibold text-[var(--color-text-primary)] mb-4 flex items-center gap-2">

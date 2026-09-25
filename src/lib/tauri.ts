@@ -167,3 +167,11 @@ export async function launchModded(): Promise<void> {
 export async function launchVanilla(): Promise<void> {
   return invoke("launch_vanilla");
 }
+
+export async function updateMods(targets: [string, string][], profileName: string): Promise<InstalledMod[]> {
+  return invoke("update_mods", { targets, profileName });
+}
+
+export type DownloadCdn = "automatic" | "cloudflare" | "google" | "hetzner";
+export async function getDownloadCdn(): Promise<DownloadCdn> { return invoke("get_download_cdn"); }
+export async function setDownloadCdn(cdn: DownloadCdn): Promise<void> { return invoke("set_download_cdn", { cdn }); }

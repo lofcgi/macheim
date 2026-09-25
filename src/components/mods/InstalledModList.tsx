@@ -10,7 +10,8 @@ import {
 } from "lucide-react";
 import { ListSkeleton } from "../common/LoadingSkeleton";
 import { useModStore } from "../../store/modStore";
-import { checkModUpdates, changeModVersion, type ModUpdate } from "../../lib/tauri";
+import { checkModUpdates, updateMods, type ModUpdate } from "../../lib/tauri";
+import { useProfileStore } from "../../store/profileStore";
 import { useAppStore } from "../../store/appStore";
 import { confirm } from "@tauri-apps/plugin-dialog";
 import {
@@ -22,6 +23,7 @@ import {
 } from "../../lib/tauri";
 
 export default function InstalledModList() {
+  const activeProfile = useProfileStore(s => s.activeProfile);
   const installedMods = useModStore((s) => s.installedMods);
   const setInstalledMods = useModStore((s) => s.setInstalledMods);
   const isLoading = useModStore((s) => s.isLoadingInstalled);
@@ -38,7 +40,9 @@ export default function InstalledModList() {
   async function checkUpdates() {
     setChecking(true);
     try {
-      const result = await checkModUpdates(); setUpdates(result);
+      const result = await checkModUpdates();
+      if (useProfileStore.getState().activeProfile !== activeProfile) return;
+      setUpdates(result);
       addToast({ type: "info", message: result.length ? `${result.length} updates available. Check server/modpack requirements before updating.` : "No newer versions found in this profile's catalog." });
     } catch (err) { addToast({ type: "error", message: `Update check failed: ${err}` }); }
     finally { setChecking(false); }
@@ -48,10 +52,25 @@ export default function InstalledModList() {
     if (!await confirm(`Update ${update.name} from ${update.current_version} to ${update.latest_version}? Your server or modpack may require the current version.`, { title: "Update mod", kind: "warning" })) return;
     setUpdating(update.full_name);
     try {
-      setInstalledMods(await changeModVersion(update.full_name, update.latest_version));
+      const mods = await updateMods([[update.full_name, update.latest_version]], activeProfile);
+      if (useProfileStore.getState().activeProfile !== activeProfile) return;
+      setInstalledMods(mods);
       setUpdates(current => current.filter(item => item.full_name !== update.full_name));
       addToast({ type: "success", message: `Updated ${update.name}` });
     } catch (err) { addToast({ type: "error", message: `Update failed: ${err}` }); }
+    finally { setUpdating(null); }
+  }
+
+  async function applyAllUpdates() {
+    if (!updates.length || updating !== null) return;
+    if (!await confirm(`Update all ${updates.length} listed mods in ${activeProfile}?\n${updates.map(u => `${u.name}: ${u.current_version} → ${u.latest_version}`).join("\n")}\n\nYour server or modpack may require the current versions. All downloads are staged before replacing files.`, { title: "Update all mods", kind: "warning" })) return;
+    setUpdating("batch");
+    try {
+      const mods = await updateMods(updates.map(u => [u.full_name, u.latest_version]), activeProfile);
+      if (useProfileStore.getState().activeProfile !== activeProfile) return;
+      setInstalledMods(mods); setUpdates([]);
+      addToast({ type: "success", message: "All selected updates installed." });
+    } catch (err) { addToast({ type: "error", message: `Batch update failed: ${err}` }); }
     finally { setUpdating(null); }
   }
 
@@ -188,6 +207,7 @@ export default function InstalledModList() {
 
           <div className="flex-1" />
           <button onClick={checkUpdates} disabled={checking || updating !== null} className="text-xs underline disabled:opacity-40">{checking ? "Checking updates..." : "Check updates"}</button>
+          {updates.length > 0 && <button onClick={() => void applyAllUpdates()} disabled={checking || updating !== null} className="text-xs underline disabled:opacity-40">{updating === "batch" ? "Staging updates..." : `Update all (${updates.length})`}</button>}
 
           <button
             onClick={async () => {

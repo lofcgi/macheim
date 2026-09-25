@@ -1,11 +1,8 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-
-use tracing::{debug, info, warn};
-
 use crate::error::{AppError, AppResult};
-use crate::models::thunderstore::{ParsedDependency, ThunderstorePackage};
+use crate::models::thunderstore::ParsedDependency;
+use crate::models::{InstalledMod, ThunderstorePackage};
+use std::collections::{HashMap, HashSet};
 
-/// A resolved dependency with all info needed for installation.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ResolvedDependency {
     pub full_name: String,
@@ -17,205 +14,263 @@ pub struct ResolvedDependency {
     pub icon: String,
 }
 
-/// Resolve all dependencies for a given package, returning them in topological order.
-/// Skips packages that are already installed.
-pub fn resolve_dependencies(
-    target_full_name: &str,
-    target_version: &str,
+fn invalid(message: impl Into<String>) -> AppError {
+    AppError::DependencyResolution(message.into())
+}
+
+/// Validate the final profile, not just the first level of the selected mods.
+/// Existing dependencies are never silently upgraded or enabled.
+pub fn resolve_plan(
+    targets: &[(String, String)],
     packages: &[ThunderstorePackage],
-    installed: &HashSet<String>,
+    installed: &[InstalledMod],
 ) -> AppResult<Vec<ResolvedDependency>> {
-    info!(
-        "Resolving dependencies for {} v{}",
-        target_full_name, target_version
-    );
-
-    let package_map: HashMap<&str, &ThunderstorePackage> = packages
-        .iter()
-        .map(|p| (p.full_name.as_str(), p))
-        .collect();
-
-    // Build the dependency graph using BFS
-    let mut graph: HashMap<String, Vec<String>> = HashMap::new();
-    let mut in_degree: HashMap<String, usize> = HashMap::new();
-    let mut all_deps: HashMap<String, ResolvedDependency> = HashMap::new();
-    let mut queue: VecDeque<String> = VecDeque::new();
-    let mut visited: HashSet<String> = HashSet::new();
-
-    // Start with the target package's dependencies
-    let target_pkg = package_map.get(target_full_name).ok_or_else(|| {
-        AppError::DependencyResolution(format!("Package '{}' not found", target_full_name))
-    })?;
-
-    let target_ver = target_pkg
-        .versions
-        .iter()
-        .find(|v| v.version_number == target_version)
-        .ok_or_else(|| {
-            AppError::DependencyResolution(format!(
-                "No versions found for '{}'",
-                target_full_name
-            ))
-        })?;
-
-    // Initialize graph with the target's direct dependencies
-    graph.entry(target_full_name.to_string()).or_default();
-    in_degree.entry(target_full_name.to_string()).or_insert(0);
-
-    for dep_str in &target_ver.dependencies {
-        if let Some(parsed) = ParsedDependency::parse(dep_str) {
-            if !installed.contains(&parsed.full_name) {
-                queue.push_back(dep_str.clone());
-                graph
-                    .entry(target_full_name.to_string())
-                    .or_default()
-                    .push(parsed.full_name.clone());
-            }
-        }
+    struct Planner<'a> {
+        packages: &'a [ThunderstorePackage],
+        installed: &'a [InstalledMod],
+        selected: HashMap<String, String>,
+        choices: HashMap<String, String>,
+        visiting: HashSet<String>,
+        done: HashSet<String>,
+        result: Vec<ResolvedDependency>,
     }
-
-    // BFS to collect all transitive dependencies
-    while let Some(dep_str) = queue.pop_front() {
-        let parsed = match ParsedDependency::parse(&dep_str) {
-            Some(p) => p,
-            None => {
-                warn!("Failed to parse dependency string: {}", dep_str);
-                continue;
+    impl Planner<'_> {
+        fn visit(&mut self, id: &str, required: Option<&str>) -> AppResult<()> {
+            // BepInEx is managed by setup, outside regular plugin transactions.
+            if id == "denikson-BepInExPack_Valheim" {
+                return Ok(());
             }
-        };
-
-        if visited.contains(&parsed.full_name) || installed.contains(&parsed.full_name) {
-            continue;
-        }
-        visited.insert(parsed.full_name.clone());
-
-        // Find the package in the Thunderstore cache
-        let pkg = match package_map.get(parsed.full_name.as_str()) {
-            Some(p) => p,
-            None => {
-                return Err(AppError::DependencyResolution(format!("Dependency '{}' is missing from this profile's catalog. No replacement was selected.", parsed.full_name)));
+            let existing = self.installed.iter().find(|m| m.full_name == id);
+            if required.is_some() && existing.is_some_and(|m| !m.enabled) {
+                return Err(invalid(format!(
+                    "Enable dependency {id} first. No files were changed."
+                )));
             }
-        };
-
-        // Find the best matching version
-        let version = pkg
-            .versions
-            .iter()
-            .find(|v| v.version_number == parsed.version);
-
-        let ver = match version {
-            Some(v) => v,
-            None => {
-                return Err(AppError::DependencyResolution(format!("Required version {} of {} is unavailable", parsed.version, parsed.full_name)));
-            }
-        };
-
-        // Add to resolved dependencies
-        all_deps.insert(
-            parsed.full_name.clone(),
-            ResolvedDependency {
-                full_name: parsed.full_name.clone(),
-                author: parsed.author.clone(),
-                name: parsed.name.clone(),
-                version: ver.version_number.clone(),
-                download_url: ver.download_url.clone(),
-                description: ver.description.clone(),
-                icon: ver.icon.clone(),
-            },
-        );
-
-        // Initialize graph node
-        graph.entry(parsed.full_name.clone()).or_default();
-        in_degree.entry(parsed.full_name.clone()).or_insert(0);
-
-        // Process this dependency's dependencies
-        for sub_dep_str in &ver.dependencies {
-            if let Some(sub_parsed) = ParsedDependency::parse(sub_dep_str) {
-                if !installed.contains(&sub_parsed.full_name)
-                    && !visited.contains(&sub_parsed.full_name)
-                {
-                    queue.push_back(sub_dep_str.clone());
-                    graph
-                        .entry(parsed.full_name.clone())
-                        .or_default()
-                        .push(sub_parsed.full_name.clone());
+            let version = self
+                .selected
+                .get(id)
+                .cloned()
+                .or_else(|| existing.map(|m| m.version.clone()))
+                .or_else(|| self.choices.get(id).cloned())
+                .or_else(|| required.map(str::to_owned))
+                .ok_or_else(|| invalid(format!("No version selected for {id}")))?;
+            if let Some(required) = required {
+                let actual = semver::Version::parse(&version).map_err(|_| {
+                    invalid(format!(
+                        "Cannot verify installed version of {id}: {version}"
+                    ))
+                })?;
+                let minimum = semver::Version::parse(required)
+                    .map_err(|_| invalid(format!("Invalid dependency version {id}-{required}")))?;
+                if actual < minimum {
+                    return Err(invalid(format!("Dependency conflict: {id} needs at least {required}, but {version} is selected/installed. Update it explicitly first or include it in the batch. No files were changed.")));
                 }
             }
-        }
-    }
-
-    // Calculate in-degrees
-    for (_, deps) in &graph {
-        for dep in deps {
-            *in_degree.entry(dep.clone()).or_insert(0) += 1;
-        }
-    }
-
-    // Kahn's algorithm for topological sort
-    let mut sorted = Vec::new();
-    let mut zero_in: VecDeque<String> = in_degree
-        .iter()
-        .filter(|(_, &deg)| deg == 0)
-        .map(|(name, _)| name.clone())
-        .collect();
-
-    let mut processed = 0;
-    while let Some(node) = zero_in.pop_front() {
-        processed += 1;
-
-        // Add to sorted list (skip the target itself; we only want dependencies)
-        if node != target_full_name {
-            if let Some(resolved) = all_deps.get(&node) {
-                sorted.push(resolved.clone());
+            if self.visiting.contains(id) {
+                return Err(invalid(format!("Circular dependency involving {id}")));
             }
-        }
-
-        if let Some(neighbors) = graph.get(&node) {
-            for neighbor in neighbors {
-                if let Some(deg) = in_degree.get_mut(neighbor) {
-                    *deg -= 1;
-                    if *deg == 0 {
-                        zero_in.push_back(neighbor.clone());
-                    }
-                }
+            if self.done.contains(id) {
+                return Ok(());
             }
+            if self.visiting.len() >= 128 {
+                return Err(invalid("Dependency graph exceeds the safe depth limit"));
+            }
+            self.choices.insert(id.into(), version.clone());
+            self.visiting.insert(id.into());
+            let download = self.selected.contains_key(id) || existing.is_none();
+            let (dependencies, resolved) = if download {
+                let p = self
+                    .packages
+                    .iter()
+                    .find(|p| p.full_name == id)
+                    .ok_or_else(|| {
+                        invalid(format!(
+                            "Package {id} is missing from this profile's catalog"
+                        ))
+                    })?;
+                let v = p
+                    .versions
+                    .iter()
+                    .find(|v| v.version_number == version)
+                    .ok_or_else(|| {
+                        invalid(format!("Required version {version} of {id} is unavailable"))
+                    })?;
+                (
+                    v.dependencies.clone(),
+                    Some(ResolvedDependency {
+                        full_name: id.into(),
+                        author: p.owner.clone(),
+                        name: p.name.clone(),
+                        version: version.clone(),
+                        download_url: v.download_url.clone(),
+                        description: v.description.clone(),
+                        icon: v.icon.clone(),
+                    }),
+                )
+            } else {
+                (existing.unwrap().dependencies.clone(), None)
+            };
+            for dependency in dependencies {
+                let parsed = ParsedDependency::parse(&dependency)
+                    .ok_or_else(|| invalid(format!("Malformed dependency {dependency} in {id}")))?;
+                self.visit(&parsed.full_name, Some(&parsed.version))?;
+            }
+            self.visiting.remove(id);
+            self.done.insert(id.into());
+            if let Some(resolved) = resolved {
+                self.result.push(resolved);
+            }
+            Ok(())
         }
     }
-
-    // Check for cycles
-    let total_nodes = in_degree.len();
-    if processed < total_nodes {
-        return Err(AppError::DependencyResolution(
-            "Circular dependency detected in mod dependencies".to_string(),
-        ));
+    let mut selected = HashMap::new();
+    for (id, version) in targets {
+        if selected.insert(id.clone(), version.clone()).is_some() {
+            return Err(invalid(format!("Duplicate update target {id}")));
+        }
     }
-
-    info!("Resolved {} dependencies", sorted.len());
-    for dep in &sorted {
-        debug!("  {} v{}", dep.full_name, dep.version);
+    let mut planner = Planner {
+        packages,
+        installed,
+        selected,
+        choices: HashMap::new(),
+        visiting: HashSet::new(),
+        done: HashSet::new(),
+        result: vec![],
+    };
+    for (id, _) in targets {
+        planner.visit(id, None)?;
     }
+    for m in installed.iter().filter(|m| m.enabled) {
+        planner.visit(&m.full_name, None)?;
+    }
+    Ok(planner.result)
+}
 
-    sorted.reverse();
-    Ok(sorted)
+pub fn resolve_dependencies(
+    target: &str,
+    version: &str,
+    packages: &[ThunderstorePackage],
+    installed: &[InstalledMod],
+) -> AppResult<Vec<ResolvedDependency>> {
+    Ok(
+        resolve_plan(&[(target.into(), version.into())], packages, installed)?
+            .into_iter()
+            .filter(|p| p.full_name != target)
+            .collect(),
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn package(deps: Vec<&str>) -> ThunderstorePackage {
+    fn package(name: &str, deps: Vec<&str>) -> ThunderstorePackage {
         serde_json::from_value(serde_json::json!({
-            "name":"Example","full_name":"Team-Example","owner":"Team","package_url":"",
+            "name":name,"full_name":format!("Team-{name}"),"owner":"Team","package_url":"",
             "date_updated":"","is_deprecated":false,"rating_score":0,
-            "versions":[{"name":"Example","full_name":"Team-Example-1.0.0","version_number":"1.0.0",
+            "versions":[{"name":name,"full_name":format!("Team-{name}-1.0.0"),"version_number":"1.0.0",
             "dependencies":deps,"download_url":"","downloads":0,"description":"","icon":"","date_created":""}]
         })).unwrap()
     }
+    fn installed(name: &str, version: &str, enabled: bool, deps: Vec<&str>) -> InstalledMod {
+        InstalledMod {
+            full_name: format!("Team-{name}"),
+            name: name.into(),
+            author: "Team".into(),
+            version: version.into(),
+            enabled,
+            dependencies: deps.into_iter().map(str::to_owned).collect(),
+            description: String::new(),
+            icon: String::new(),
+            installed_at: String::new(),
+        }
+    }
     #[test]
     fn missing_dependencies_are_errors_not_successful_partial_plans() {
-        assert!(resolve_dependencies("Team-Example", "1.0.0", &[package(vec!["Missing-Mod-1.0.0"])], &HashSet::new()).is_err());
+        assert!(resolve_dependencies(
+            "Team-A",
+            "1.0.0",
+            &[package("A", vec!["Missing-Mod-1.0.0"])],
+            &[]
+        )
+        .is_err());
     }
     #[test]
     fn unavailable_pinned_version_is_never_replaced_with_latest() {
-        assert!(resolve_dependencies("Team-Example", "0.9.0", &[package(vec![])], &HashSet::new()).is_err());
+        assert!(resolve_dependencies("Team-A", "0.9.0", &[package("A", vec![])], &[]).is_err());
+    }
+    #[test]
+    fn rejects_shared_version_conflicts() {
+        let mut d = package("D", vec![]);
+        let mut v = d.versions[0].clone();
+        v.version_number = "2.0.0".into();
+        d.versions.push(v);
+        let packages = vec![
+            package("A", vec!["Team-B-1.0.0", "Team-C-1.0.0"]),
+            package("B", vec!["Team-D-1.0.0"]),
+            package("C", vec!["Team-D-2.0.0"]),
+            d,
+        ];
+        assert!(resolve_dependencies("Team-A", "1.0.0", &packages, &[]).is_err());
+    }
+    #[test]
+    fn rejects_cycles() {
+        let packages = vec![
+            package("A", vec!["Team-B-1.0.0"]),
+            package("B", vec!["Team-C-1.0.0"]),
+            package("C", vec!["Team-B-1.0.0"]),
+        ];
+        assert!(resolve_dependencies("Team-A", "1.0.0", &packages, &[]).is_err());
+    }
+    #[test]
+    fn rejects_old_or_disabled_transitive_dependency() {
+        let packages = vec![
+            package("A", vec!["Team-B-1.0.0"]),
+            package("B", vec!["Team-C-2.0.0"]),
+        ];
+        for c in [
+            installed("C", "1.0.0", true, vec![]),
+            installed("C", "2.0.0", false, vec![]),
+        ] {
+            assert!(resolve_dependencies("Team-A", "1.0.0", &packages, &[c]).is_err());
+        }
+    }
+    #[test]
+    fn rejects_reverse_dependency_breakage() {
+        assert!(resolve_plan(
+            &[("Team-D".into(), "1.0.0".into())],
+            &[package("D", vec![])],
+            &[
+                installed("A", "1.0.0", true, vec!["Team-D-2.0.0"]),
+                installed("D", "2.0.0", true, vec![])
+            ]
+        )
+        .is_err());
+    }
+    #[test]
+    fn batch_validates_final_versions_and_orders_dependencies_first() {
+        let packages = vec![package("A", vec!["Team-B-1.0.0"]), package("B", vec![])];
+        let result = resolve_plan(
+            &[
+                ("Team-A".into(), "1.0.0".into()),
+                ("Team-B".into(), "1.0.0".into()),
+            ],
+            &packages,
+            &[installed("B", "0.9.0", true, vec![])],
+        )
+        .unwrap();
+        assert_eq!(
+            result
+                .iter()
+                .map(|p| p.full_name.as_str())
+                .collect::<Vec<_>>(),
+            vec!["Team-B", "Team-A"]
+        );
+    }
+    #[test]
+    fn malformed_dependencies_are_errors() {
+        assert!(
+            resolve_dependencies("Team-A", "1.0.0", &[package("A", vec!["invalid"])], &[]).is_err()
+        );
     }
 }
