@@ -70,17 +70,20 @@ jobs:
 
             Valheim Mod Manager for macOS.
 
-            ### What's new in 1.1.0
-            - Mac Compatibility: version-pinned rules for four tested VES/Wizardry item effects, with profile-level and per-rule opt-out.
-            - Config editor and installed-mod search blank-screen fixes.
-            - Native Sync & Clean confirmation and recoverable cleanup; disabled mods stay disabled.
-            - Safer profile preservation and persistent active profile; console enabled when launching modded.
+            ### What's new in 1.2.0
+            - Compressed catalog loading, visible retryable errors, and refreshing-state fixes.
+            - BepInEx bootstrap no longer requires the full mod catalog.
+            - Manual game location selection with validation and persistence, including external drives.
+            - Hexium-backed profiles: choose the catalog when creating a new profile.
+            - Explicit version selection and opt-in update checks with staged installation, preserved configs and disabled state.
+            - Existing 1.1.0 config/search, profile-preservation and console fixes remain included.
 
             ### Compatibility limits
             The bundled visual patch targets Valheim 0.221.12 / Unity 6000.0.61f1 / Metal and requires ShaderHelperForMac 3.3.0.
             It does not fix every mod, monster, building or UI icon. Unknown versions are skipped.
             Macheim's Apple Silicon app still launches the modded game through Rosetta.
-            See the repository's RELEASE-1.1.0.md for the issue/PR audit and known limitations.
+            Hexium and Thunderstore catalogs are separate per profile; this is not automatic cross-repository migration or PC profile-code import.
+            See RELEASE-1.2.0.md for QA evidence, the issue/PR audit and known limitations.
 
             ### Installation
             1. Download the `.dmg` file for your Mac

@@ -8,7 +8,7 @@ pub struct ThunderstorePackage {
     pub package_url: String,
     pub date_updated: String,
     pub is_deprecated: bool,
-    pub rating_score: u32,
+    pub rating_score: i64,
     pub versions: Vec<PackageVersion>,
     #[serde(default)]
     pub categories: Vec<String>,
@@ -43,7 +43,7 @@ pub struct PackageListing {
     pub owner: String,
     pub description: String,
     pub version_number: String,
-    pub rating_score: u32,
+    pub rating_score: i64,
     pub downloads: u64,
     pub is_deprecated: bool,
     pub icon: String,

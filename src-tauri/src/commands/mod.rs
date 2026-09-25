@@ -7,3 +7,4 @@ pub mod launch;
 pub mod mods;
 pub mod profiles;
 pub mod thunderstore;
+pub mod updates;

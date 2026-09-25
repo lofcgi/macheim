@@ -75,6 +75,16 @@ and a SHA-256/source manifest. Building the manager does not require Valheim or
 then run `sh scripts/build-compatibility.sh`. No game or third-party reference DLLs
 are redistributed. See [compatibility details](tools/item-material-compat/README.md).
 
+## Catalogs, updates and custom game locations (1.2.0)
+
+- Setup and Settings accept the Valheim app path or its containing folder, including external Steam libraries. The selection is checked and saved. If that drive is disconnected, reconnect it or select another installation; Macheim does not silently switch installations.
+- New profiles can use **Thunderstore** or **Hexium**. Existing profiles remain on Thunderstore. Catalogs are kept separate to avoid silently changing the source of installed mods; automatic migration and mixed-source resolution are not provided. Missing dependencies produce an error instead of an invented replacement.
+- **Installed Mods → Check updates** fetches current catalog data. Updates are opt-in, one mod at a time; match your server/modpack's requirements first. A dependency that is too old or disabled must be addressed first.
+- A mod's details now include **Version to install**, including older releases. Version changes stage the profile before replacing live files and preserve existing configuration and disabled state. Keep independent backups of saves and manually installed mods.
+- Catalog errors stay visible with a retry button. BepInEx setup uses a dedicated package lookup instead of waiting for the entire catalog.
+
+See [the 1.2.0 release audit](RELEASE-1.2.0.md) for tested behavior and remaining limitations.
+
 ## Mac Compatibility (1.1.0)
 
 Open **Mac Compatibility → Check support** to inspect the bundled catalog and the

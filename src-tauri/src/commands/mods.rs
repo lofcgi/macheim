@@ -80,7 +80,8 @@ pub async fn install_mod(
 
     // Get currently installed mods to skip existing deps
     let profile = profile_manager::load_profile(&active_profile)?;
-    let installed_set: HashSet<String> = profile.mods.iter().map(|m| m.full_name.clone()).collect();
+    let mut installed_set: HashSet<String> = profile.mods.iter().map(|m| m.full_name.clone()).collect();
+    installed_set.insert("denikson-BepInExPack_Valheim".into());
 
     // Resolve dependencies
     emit_progress(
@@ -413,7 +414,8 @@ pub async fn sync_mods(
                 None,
                 "Fetching package list...",
             );
-            let p = thunderstore_client::fetch_packages(false).await?;
+            let source = profile_manager::load_profile(&active_profile)?.catalog_source;
+            let p = thunderstore_client::fetch_catalog(source, false).await?;
             let mut s = state
                 .lock()
                 .map_err(|e| AppError::Mod(format!("Lock: {}", e)))?;

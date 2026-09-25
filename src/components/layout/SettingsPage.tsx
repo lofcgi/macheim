@@ -10,6 +10,8 @@ import {
 import { useAppStore } from "../../store/appStore";
 import { createBackup, listBackups, restoreBackup } from "../../lib/tauri";
 import type { BackupInfo } from "../../lib/types";
+import GameLocationPicker from "../setup/GameLocationPicker";
+import { useModStore } from "../../store/modStore";
 
 export default function SettingsPage() {
   const gameStatus = useAppStore((s) => s.gameStatus);
@@ -100,6 +102,11 @@ export default function SettingsPage() {
             </span>
           </div>
         </div>
+        <GameLocationPicker onSelected={status => {
+          useAppStore.getState().setGameStatus(status);
+          useModStore.setState({ installedMods: [], packages: [], selectedPackage: null, packageError: null });
+          useAppStore.getState().setInitialized(false);
+        }} />
       </section>
 
       {/* Paths */}
@@ -114,7 +121,7 @@ export default function SettingsPage() {
           </p>
           <p className="font-mono text-xs text-[var(--color-text-muted)] bg-[var(--color-bg-input)] px-3 py-2 rounded-md">
             {gameStatus?.game_path
-              ? `${gameStatus.game_path}/BepInEx/`
+              ? `${gameStatus.game_path.replace(/\/[^/]+\.app\/?$/, "")}/BepInEx/`
               : "~/Library/Application Support/Steam/steamapps/common/Valheim/BepInEx/"}
           </p>
         </div>

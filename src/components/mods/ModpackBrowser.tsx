@@ -14,7 +14,9 @@ import {
 import { GridSkeleton } from "../common/LoadingSkeleton";
 import { useModStore } from "../../store/modStore";
 import { useAppStore } from "../../store/appStore";
-import { fetchPackages, installModpack, getInstalledMods } from "../../lib/tauri";
+import { installModpack, getInstalledMods } from "../../lib/tauri";
+import { loadCatalog } from "../../lib/catalog";
+import CatalogStatus from "./CatalogStatus";
 
 type ModpackSort = "popular" | "updated" | "rated" | "name";
 
@@ -46,8 +48,6 @@ const sortTabs: { value: ModpackSort; label: string; icon: typeof Flame }[] = [
 export default function ModpackBrowser() {
   const packages = useModStore((s) => s.packages);
   const isLoading = useModStore((s) => s.isLoadingPackages);
-  const setPackages = useModStore((s) => s.setPackages);
-  const setLoading = useModStore((s) => s.setLoadingPackages);
   const installedMods = useModStore((s) => s.installedMods);
   const isInstallingMod = useModStore((s) => s.isInstallingMod);
   const setInstallingMod = useModStore((s) => s.setInstallingMod);
@@ -59,29 +59,8 @@ export default function ModpackBrowser() {
   const [sortBy, setSortBy] = useState<ModpackSort>("popular");
 
   useEffect(() => {
-    if (packages.length > 0) return;
-    let cancelled = false;
-    async function load() {
-      setLoading(true);
-      try {
-        const pkgs = await fetchPackages();
-        if (!cancelled) setPackages(pkgs);
-      } catch (err) {
-        if (!cancelled) {
-          addToast({
-            type: "error",
-            message: `Failed to fetch packages: ${err}`,
-          });
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [packages.length, setPackages, setLoading, addToast]);
+    if (useModStore.getState().packages.length === 0) void loadCatalog();
+  }, []);
 
   // Filter modpacks
   const modpacks = packages.filter((pkg) => {
@@ -148,6 +127,7 @@ export default function ModpackBrowser() {
 
   return (
     <div>
+      <CatalogStatus />
       {/* Search + Sort Bar */}
       <div className="flex flex-col gap-4 mb-6">
         {/* Search */}

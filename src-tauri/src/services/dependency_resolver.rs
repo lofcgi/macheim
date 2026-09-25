@@ -51,7 +51,6 @@ pub fn resolve_dependencies(
         .versions
         .iter()
         .find(|v| v.version_number == target_version)
-        .or_else(|| target_pkg.versions.first())
         .ok_or_else(|| {
             AppError::DependencyResolution(format!(
                 "No versions found for '{}'",
@@ -94,11 +93,7 @@ pub fn resolve_dependencies(
         let pkg = match package_map.get(parsed.full_name.as_str()) {
             Some(p) => p,
             None => {
-                warn!(
-                    "Dependency '{}' not found in Thunderstore cache, skipping",
-                    parsed.full_name
-                );
-                continue;
+                return Err(AppError::DependencyResolution(format!("Dependency '{}' is missing from this profile's catalog. No replacement was selected.", parsed.full_name)));
             }
         };
 
@@ -106,14 +101,12 @@ pub fn resolve_dependencies(
         let version = pkg
             .versions
             .iter()
-            .find(|v| v.version_number == parsed.version)
-            .or_else(|| pkg.versions.first());
+            .find(|v| v.version_number == parsed.version);
 
         let ver = match version {
             Some(v) => v,
             None => {
-                warn!("No versions for dependency '{}'", parsed.full_name);
-                continue;
+                return Err(AppError::DependencyResolution(format!("Required version {} of {} is unavailable", parsed.version, parsed.full_name)));
             }
         };
 
@@ -202,5 +195,27 @@ pub fn resolve_dependencies(
         debug!("  {} v{}", dep.full_name, dep.version);
     }
 
+    sorted.reverse();
     Ok(sorted)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn package(deps: Vec<&str>) -> ThunderstorePackage {
+        serde_json::from_value(serde_json::json!({
+            "name":"Example","full_name":"Team-Example","owner":"Team","package_url":"",
+            "date_updated":"","is_deprecated":false,"rating_score":0,
+            "versions":[{"name":"Example","full_name":"Team-Example-1.0.0","version_number":"1.0.0",
+            "dependencies":deps,"download_url":"","downloads":0,"description":"","icon":"","date_created":""}]
+        })).unwrap()
+    }
+    #[test]
+    fn missing_dependencies_are_errors_not_successful_partial_plans() {
+        assert!(resolve_dependencies("Team-Example", "1.0.0", &[package(vec!["Missing-Mod-1.0.0"])], &HashSet::new()).is_err());
+    }
+    #[test]
+    fn unavailable_pinned_version_is_never_replaced_with_latest() {
+        assert!(resolve_dependencies("Team-Example", "0.9.0", &[package(vec![])], &HashSet::new()).is_err());
+    }
 }

@@ -1,5 +1,6 @@
 import { RefreshCw } from "lucide-react";
 import { useAppStore } from "../../store/appStore";
+import { useProfileStore } from "../../store/profileStore";
 
 const pageTitles: Record<string, string> = {
   browse: "Browse Mods",
@@ -19,6 +20,7 @@ interface HeaderProps {
 
 export default function Header({ onRefresh, isRefreshing }: HeaderProps) {
   const currentPage = useAppStore((s) => s.currentPage);
+  const catalog = useProfileStore(s => s.profiles.find(p => p.name === s.activeProfile)?.catalog_source ?? "thunderstore");
 
   return (
     <header className="h-14 shrink-0 flex items-center gap-4 px-6 border-b border-[var(--color-border-subtle)] bg-[var(--color-bg-primary)]">
@@ -27,6 +29,7 @@ export default function Header({ onRefresh, isRefreshing }: HeaderProps) {
       </h2>
 
       <div className="flex-1" />
+      {(currentPage === "browse" || currentPage === "modpacks") && <span className="text-xs text-[var(--color-text-muted)]">{catalog === "hexium" ? "Hexium" : "Thunderstore"} catalog</span>}
 
       {onRefresh && (
         <button

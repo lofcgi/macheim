@@ -51,6 +51,7 @@ export interface InstalledMod {
 export interface Profile {
   name: string;
   description: string;
+  catalog_source?: "thunderstore" | "hexium";
   mods: InstalledMod[];
   compatibility: CompatibilitySettings;
   created_at: string;

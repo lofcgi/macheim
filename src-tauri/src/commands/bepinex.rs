@@ -35,15 +35,7 @@ pub async fn install_bepinex(state: tauri::State<'_, Mutex<AppState>>) -> AppRes
     let packages = match packages {
         Some(pkgs) => pkgs,
         None => {
-            info!("Thunderstore cache not loaded, fetching packages first...");
-            let pkgs = thunderstore_client::fetch_packages(false).await?;
-            // Update cache in state
-            let mut s = state
-                .lock()
-                .map_err(|e| AppError::BepInEx(format!("Failed to lock state: {}", e)))?;
-            s.thunderstore_cache = Some(pkgs.clone());
-            s.cache_updated_at = Some(chrono::Utc::now());
-            pkgs
+            vec![thunderstore_client::fetch_bepinex_package().await?]
         }
     };
 
