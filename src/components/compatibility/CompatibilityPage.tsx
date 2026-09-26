@@ -37,6 +37,11 @@ export default function CompatibilityPage() {
       {!status && !error && <p role="status">Checking support…</p>}
       {status && <>
         <p className="text-sm">Profile: <strong>{status.profile_name}</strong></p>
+        <div role="status" aria-label="Last recorded runtime status" className="text-sm border border-[var(--color-warning)] rounded-lg p-3">
+          <p className="font-medium">Last recorded runtime status</p>
+          <p className="break-words">{status.recent_log.filter(line => line.includes("[CompatibilityStatus]")).slice(-1)[0] || "Unverified: no runtime status has been recorded. Installed files do not prove the patch is active."}</p>
+          <p className="text-xs mt-2">This may be from a previous session or profile. The patch only runs on the exact game and Unity versions listed below. Launch the game, then check support again.</p>
+        </div>
         <label className="flex gap-3 items-center text-sm font-medium"><input type="checkbox" checked={status.settings.automatic} disabled={busy || status.game_running} onChange={e => apply({ ...status.settings, automatic: e.target.checked })} />Automatically apply verified compatibility rules</label>
         <p className="text-xs text-[var(--color-text-muted)]">Applied after mod changes and before Play Modded. Turning this off unloads Macheim's patch on the next launch; it does not disable ShaderHelper or other mods.</p>
         <div className="flex items-center justify-between gap-3"><p role="status" className="text-sm">{status.up_to_date ? (status.installed ? "Managed patch installed. Runtime checks still apply." : "No managed patch is active.") : "Installed files need to be reconciled with this profile."}</p><button className={button} disabled={busy || status.game_running} onClick={() => apply(status.settings)}>Apply supported rules</button></div>
@@ -47,7 +52,7 @@ export default function CompatibilityPage() {
       <section className="rounded-xl border border-[var(--color-warning)]/30 bg-[var(--color-warning)]/5 p-4 text-sm space-y-2">
         <p className="font-medium flex items-center gap-2"><AlertTriangle size={16} /> Limited, tested coverage</p>
         <p>Runtime support: Valheim {status.catalog.game_version}, Unity {status.catalog.unity_version}, macOS Metal. The plugin skips other game/Unity versions. Mod versions come from profile metadata; manually replaced DLLs cannot be verified by that metadata.</p>
-        <p>Not a universal shader repair. Other items, monsters, buildings, equipment and UI icons are not covered. Effect brightness can differ from Windows. Unverified all-mod scanning is not included in 1.1.0.</p>
+        <p>Not a universal shader repair. Backpacks, other items, monsters, buildings, equipment and UI icons are not covered. Effect brightness can differ from Windows. Automatic all-mod shader scanning is not included.</p>
       </section>
       <div className="space-y-3">{status.rules.map(({ rule, eligible, reason }) => {
         const enabled = !status.settings.disabled_rules.includes(rule.id);

@@ -70,20 +70,19 @@ jobs:
 
             Valheim Mod Manager for macOS.
 
-            ### What's new in 1.2.0
-            - Compressed catalog loading, visible retryable errors, and refreshing-state fixes.
-            - BepInEx bootstrap no longer requires the full mod catalog.
-            - Manual game location selection with validation and persistence, including external drives.
-            - Hexium-backed profiles: choose the catalog when creating a new profile.
-            - Explicit version selection and opt-in update checks with staged installation, preserved configs and disabled state.
-            - Existing 1.1.0 config/search, profile-preservation and console fixes remain included.
+            ### What's new in 1.2.1
+            - Dependency plans reject cycles, incompatible shared versions, outdated/disabled transitive dependencies and reverse-dependency breakage before changing files.
+            - Opt-in Update All stages the full batch before replacing live files and preserves configs and disabled state.
+            - Settings now offers an explicit Thunderstore download CDN choice. No automatic security bypass or silent mirror fallback.
+            - Mac Compatibility shows the last recorded runtime status, including version-related patch rejection, with session/provenance warnings.
+            - Includes the catalog loading, game-location and separate Hexium profile support from 1.2.0.
 
             ### Compatibility limits
             The bundled visual patch targets Valheim 0.221.12 / Unity 6000.0.61f1 / Metal and requires ShaderHelperForMac 3.3.0.
             It does not fix every mod, monster, building or UI icon. Unknown versions are skipped.
             Macheim's Apple Silicon app still launches the modded game through Rosetta.
             Hexium and Thunderstore catalogs are separate per profile; this is not automatic cross-repository migration or PC profile-code import.
-            See RELEASE-1.2.0.md for QA evidence, the issue/PR audit and known limitations.
+            See RELEASE-1.2.1.md for QA evidence and known limitations. Malwarebytes-specific validation remains open; backpack shaders and newer game/Unity versions are not newly supported by this release.
 
             ### Installation
             1. Download the `.dmg` file for your Mac

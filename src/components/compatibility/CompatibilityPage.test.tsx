@@ -11,6 +11,11 @@ const status: CompatibilityStatus = {
 };
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(getCompatibility).mockResolvedValue(structuredClone(status)); });
 afterEach(cleanup);
+test("runtime rejection is visible outside the collapsed log", async () => {
+  vi.mocked(getCompatibility).mockResolvedValue({ ...status, recent_log: ["[CompatibilityStatus] inactive: unverified game/Unity version 1.0.14/6000.0"] });
+  render(<CompatibilityPage />);
+  expect((await screen.findByRole("status", { name: "Last recorded runtime status" })).textContent).toContain("inactive: unverified");
+});
 test("checking support is read-only and never claims a full shader scan", async () => {
   render(<CompatibilityPage />); await screen.findByText("Friends");
   expect(screen.getByText(/not every shader in the game/)).toBeTruthy();

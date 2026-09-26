@@ -99,7 +99,7 @@ pub async fn install_mod(
         &full_name,
         target_version,
         &packages,
-        &installed_set,
+        &profile.mods,
     )?;
 
     let total_items = deps.len() + 1; // deps + target mod

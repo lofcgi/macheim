@@ -301,23 +301,42 @@ pub async fn download_mod_with_progress(
     progress: Option<ProgressFn>,
 ) -> AppResult<Vec<u8>> {
     info!("Downloading mod from: {}", download_url);
+    let cdn = super::download_settings::load()?;
+    download_from_cdn(download_url, progress, cdn).await
+}
+
+async fn download_from_cdn(download_url: &str, progress: Option<ProgressFn>, cdn: super::download_settings::DownloadCdn) -> AppResult<Vec<u8>> {
 
     let client = reqwest::Client::builder()
         .user_agent(concat!("Macheim/", env!("CARGO_PKG_VERSION")))
         .connect_timeout(std::time::Duration::from_secs(30))
+        .redirect(reqwest::redirect::Policy::none())
         // No overall timeout - large mods can be 200MB+
         .build()
         .map_err(|e| AppError::Network(format!("Failed to create HTTP client: {}", e)))?;
 
     let response = tokio::time::timeout(
         std::time::Duration::from_secs(45),
-        client.get(download_url).send(),
+        async {
+            let mut url = reqwest::Url::parse(download_url).map_err(|e| AppError::Network(e.to_string()))?;
+            for _ in 0..10 {
+                url = super::download_settings::rewrite(&url, cdn)?;
+                if url.scheme() != "https" { return Err(AppError::Network("Refusing a non-HTTPS package download".into())); }
+                let response = client.get(url.clone()).send().await.map_err(|e| AppError::Network(format!("Download from {} failed: {e}. Try an explicit Thunderstore CDN in Settings; do not disable security software.", url.host_str().unwrap_or("unknown host"))))?;
+                if !response.status().is_redirection() { return Ok(response); }
+                let location = response.headers().get(reqwest::header::LOCATION)
+                    .ok_or_else(|| AppError::Network("Download redirect has no Location".into()))?
+                    .to_str().map_err(|e| AppError::Network(e.to_string()))?;
+                url = url.join(location).map_err(|e| AppError::Network(e.to_string()))?;
+            }
+            Err(AppError::Network("Too many download redirects".into()))
+        },
     )
     .await
     .map_err(|_| {
         AppError::Network("Download server did not respond within 45 seconds. Please retry.".into())
     })?
-    .map_err(|e| AppError::Network(format!("Download failed: {}", e)))?;
+    ?;
 
     if !response.status().is_success() {
         return Err(AppError::Network(format!(
@@ -351,6 +370,18 @@ pub async fn download_mod_with_progress(
 mod tests {
     use super::*;
     use std::io::Write;
+    #[tokio::test]
+    #[ignore = "live CDN download comparison; no package is installed or executed"]
+    async fn live_explicit_cdn_downloads_match() {
+        use super::super::download_settings::DownloadCdn;
+        use sha2::{Digest, Sha256};
+        let url="https://thunderstore.io/package/download/denikson/BepInExPack_Valheim/5.4.2351/";
+        let primary=download_from_cdn(url,None,DownloadCdn::Automatic).await.unwrap();
+        let alternate=download_from_cdn(url,None,DownloadCdn::Hetzner).await.unwrap();
+        assert_eq!(Sha256::digest(&primary),Sha256::digest(&alternate));
+        assert!(zip::ZipArchive::new(std::io::Cursor::new(alternate)).is_ok());
+        println!("Default and explicit Hetzner downloads match ({} bytes)",primary.len());
+    }
     #[test]
     fn decodes_plain_and_gzip_and_rejects_html_or_truncated_data() {
         let json = br#"["ok"]"#;

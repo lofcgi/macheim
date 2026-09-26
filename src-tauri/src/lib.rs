@@ -107,6 +107,8 @@ pub fn run() {
             commands::thunderstore::fetch_packages,
             commands::thunderstore::search_packages,
             commands::thunderstore::get_package_details,
+            services::download_settings::get_download_cdn,
+            services::download_settings::set_download_cdn,
             // Mod management
             commands::mods::install_mod,
             commands::mods::uninstall_mod,
@@ -117,6 +119,7 @@ pub fn run() {
             commands::mods::list_unmanaged_mods,
             commands::updates::check_mod_updates,
             commands::updates::change_mod_version,
+            commands::updates::update_mods,
             // Profiles
             commands::profiles::list_profiles,
             commands::profiles::create_profile,

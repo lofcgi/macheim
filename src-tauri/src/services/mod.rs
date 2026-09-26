@@ -3,6 +3,7 @@ pub mod bepinex_installer;
 pub mod compatibility;
 pub mod config_editor;
 pub mod dependency_resolver;
+pub mod download_settings;
 pub mod game_detector;
 pub mod gatekeeper;
 pub mod launcher;
