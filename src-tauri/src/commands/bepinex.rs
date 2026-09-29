@@ -24,20 +24,8 @@ pub async fn install_bepinex(state: tauri::State<'_, Mutex<AppState>>) -> AppRes
             .ok_or_else(|| AppError::BepInEx("Game path not set. Detect game first.".to_string()))?
     };
 
-    // Auto-fetch packages if cache is not loaded
-    let packages = {
-        let s = state
-            .lock()
-            .map_err(|e| AppError::BepInEx(format!("Failed to lock state: {}", e)))?;
-        s.thunderstore_cache.clone()
-    };
-
-    let packages = match packages {
-        Some(pkgs) => pkgs,
-        None => {
-            vec![thunderstore_client::fetch_bepinex_package().await?]
-        }
-    };
+    // The shared loader is independent of browsing filters and duplicate catalogs.
+    let packages = vec![thunderstore_client::fetch_bepinex_package().await?];
 
     let game_root = game_detector::get_valheim_root(&game_path);
 

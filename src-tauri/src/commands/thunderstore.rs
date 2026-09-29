@@ -23,9 +23,7 @@ pub async fn fetch_packages(
         .map_err(|e| AppError::Profile(e.to_string()))?
         .active_profile
         .clone();
-    let source = crate::services::profile_manager::load_profile(&profile_name)?.catalog_source;
-    let packages =
-        thunderstore_client::fetch_catalog(source, force_refresh.unwrap_or(false)).await?;
+    let packages = thunderstore_client::fetch_all_catalogs(force_refresh.unwrap_or(false)).await?;
 
     // Create listings for the frontend (lightweight)
     let listings: Vec<PackageListing> = packages.iter().map(PackageListing::from).collect();
@@ -68,6 +66,7 @@ pub async fn search_packages(
 #[tauri::command]
 pub async fn get_package_details(
     full_name: String,
+    source: Option<crate::models::profile::CatalogSource>,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> AppResult<ThunderstorePackage> {
     let state = state
@@ -79,7 +78,8 @@ pub async fn get_package_details(
         .as_ref()
         .ok_or_else(|| AppError::Network("Package cache not loaded".to_string()))?;
 
-    thunderstore_client::find_package(packages, &full_name)
-        .cloned()
-        .ok_or_else(|| AppError::Network(format!("Package '{}' not found", full_name)))
+    let mut matches = packages.iter().filter(|p| p.full_name == full_name && source.is_none_or(|s| s == p.source));
+    let pkg = matches.next().ok_or_else(|| AppError::Network(format!("Package '{}' not found in selected source", full_name)))?;
+    if matches.next().is_some() { return Err(AppError::Mod("Select Thunderstore or Hexium for this package".into())); }
+    Ok(pkg.clone())
 }

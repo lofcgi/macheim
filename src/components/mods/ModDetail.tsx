@@ -59,7 +59,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
       setLoadingDetail(true);
       setDetailError(null);
       try {
-        const d = await getPackageDetails(pkg.full_name);
+        const d = await getPackageDetails(pkg.full_name, pkg.source);
         if (!cancelled) setDetail(d);
       } catch (err) {
         if (!cancelled) setDetailError(String(err));
@@ -69,7 +69,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
     }
     load();
     return () => { cancelled = true; };
-  }, [pkg.full_name]);
+  }, [pkg.full_name, pkg.source]);
 
   const isInstalled = installedMods.some(
     (m) => m.full_name === pkg.full_name
@@ -86,7 +86,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
     if (isInstalled && !await confirm(`Change ${pkg.name} to v${selectedVersion}? Keep the same versions as your server. Existing configuration and disabled state are preserved.`, { title: "Change mod version", kind: "warning" })) return;
     setInstallingMod(pkg.full_name);
     try {
-      await changeModVersion(pkg.full_name, selectedVersion);
+      await changeModVersion(pkg.full_name, selectedVersion, pkg.source);
       const mods = await getInstalledMods();
       setInstalledMods(mods);
       addToast({ type: "success", message: `Installed ${pkg.name}` });
@@ -157,7 +157,7 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
                 {pkg.name}
               </h3>
               <p className="text-sm text-[var(--color-text-secondary)] mt-0.5">
-                by {pkg.owner}
+                by {pkg.owner} · {pkg.source === "hexium" ? "Hexium" : "Thunderstore"}
               </p>
               <div className="flex items-center gap-4 mt-2.5 text-xs text-[var(--color-text-muted)]">
                 <span className="flex items-center gap-1">
@@ -177,6 +177,8 @@ export default function ModDetail({ pkg, onClose }: ModDetailProps) {
           </div>
 
           {/* Description */}
+          {isInstalled && <p className="text-xs text-[var(--color-text-muted)]">Installed source: {installedMods.find(m => m.full_name === pkg.full_name)?.source ?? "manual / unknown"}. Source switching is not automatic.</p>}
+          {pkg.full_name === "denikson-BepInExPack_Valheim" && <p role="note">BepInEx is the shared loader, not a regular mod. Install it from Setup.</p>}
           <div>
             <h4 className="text-xs font-semibold text-[var(--color-text-muted)] uppercase tracking-wider mb-2">
               Description

@@ -21,9 +21,10 @@ export default function ModGrid() {
 
   // Reset display count when search changes
   const searchQuery = useModStore((s) => s.searchQuery);
+  const sourceFilter = useModStore((s) => s.sourceFilter);
   useEffect(() => {
     setDisplayCount(PAGE_SIZE);
-  }, [searchQuery]);
+  }, [searchQuery, sourceFilter]);
 
   const filtered = getFilteredPackages();
   const displayed = filtered.slice(0, displayCount);
@@ -61,7 +62,7 @@ export default function ModGrid() {
         <>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
             {displayed.map((pkg) => (
-              <ModCard key={pkg.full_name} pkg={pkg} />
+              <ModCard key={`${pkg.source}:${pkg.full_name}`} pkg={pkg} />
             ))}
           </div>
 

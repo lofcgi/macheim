@@ -102,6 +102,25 @@ pub async fn fetch_catalog(
     source: crate::models::profile::CatalogSource,
     force: bool,
 ) -> AppResult<Vec<ThunderstorePackage>> {
+    let mut packages = fetch_catalog_data(source, force).await?;
+    // Stamp from the requested endpoint, never trust a remote source field or old cache.
+    for p in &mut packages { p.source = source; }
+    Ok(packages)
+}
+
+pub async fn fetch_all_catalogs(force: bool) -> AppResult<Vec<ThunderstorePackage>> {
+    use crate::models::profile::CatalogSource;
+    let (a, b) = tokio::try_join!(
+        fetch_catalog(CatalogSource::Thunderstore, force),
+        fetch_catalog(CatalogSource::Hexium, force)
+    )?;
+    Ok(a.into_iter().chain(b).collect())
+}
+
+async fn fetch_catalog_data(
+    source: crate::models::profile::CatalogSource,
+    force: bool,
+) -> AppResult<Vec<ThunderstorePackage>> {
     if source == crate::models::profile::CatalogSource::Thunderstore {
         return fetch_packages(force).await;
     }
@@ -234,6 +253,7 @@ pub async fn fetch_bepinex_package() -> AppResult<ThunderstorePackage> {
     )
     .await?;
     Ok(ThunderstorePackage {
+        source: crate::models::profile::CatalogSource::Thunderstore,
         name: p.name,
         full_name: p.full_name,
         owner: p.owner,

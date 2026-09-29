@@ -1,4 +1,7 @@
+export type CatalogSource = "thunderstore" | "hexium";
+
 export interface ThunderstorePackage {
+  source?: CatalogSource;
   name: string;
   full_name: string;
   owner: string;
@@ -25,6 +28,7 @@ export interface PackageVersion {
 }
 
 export interface PackageDetail {
+  source?: CatalogSource;
   name: string;
   full_name: string;
   owner: string;
@@ -37,6 +41,7 @@ export interface PackageDetail {
 }
 
 export interface InstalledMod {
+  source?: CatalogSource | null;
   full_name: string;
   name: string;
   author: string;

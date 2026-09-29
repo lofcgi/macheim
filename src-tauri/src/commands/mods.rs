@@ -7,7 +7,7 @@ use tracing::info;
 use crate::error::{AppError, AppResult};
 use crate::models::InstalledMod;
 use crate::services::{
-    dependency_resolver, game_detector, mod_installer, profile_manager, thunderstore_client,
+    game_detector, mod_installer, profile_manager, thunderstore_client,
 };
 use crate::AppState;
 
@@ -23,261 +23,17 @@ pub struct ProgressEvent {
     pub message: String,
 }
 
-/// Install a mod and all its dependencies.
+/// Install through the same validated, staged transaction used for updates.
 #[tauri::command]
 pub async fn install_mod(
     full_name: String,
     version: Option<String>,
+    source: Option<crate::models::profile::CatalogSource>,
     state: tauri::State<'_, Mutex<AppState>>,
-    app: tauri::AppHandle,
+    _app: tauri::AppHandle,
 ) -> AppResult<Vec<InstalledMod>> {
-    info!("Command: install_mod({})", full_name);
-    let _operation = crate::lock_operation(&state)?;
-    crate::services::launcher::ensure_game_stopped()?;
-    profile_manager::validate_name(&full_name)?;
-
-    let (game_path, packages, active_profile) = {
-        let state = state
-            .lock()
-            .map_err(|e| AppError::Mod(format!("Failed to lock state: {}", e)))?;
-
-        let game_path = state
-            .game_path
-            .clone()
-            .ok_or_else(|| AppError::Mod("Game path not set".to_string()))?;
-
-        let packages = state
-            .thunderstore_cache
-            .clone()
-            .ok_or_else(|| AppError::Mod("Package cache not loaded".to_string()))?;
-
-        let active_profile = state.active_profile.clone();
-
-        (game_path, packages, active_profile)
-    };
-
-    let game_root = game_detector::get_valheim_root(&game_path);
-
-    // Find the target package
-    let target_pkg = thunderstore_client::find_package(&packages, &full_name)
-        .ok_or_else(|| AppError::Mod(format!("Package '{}' not found", full_name)))?;
-
-    let target_version = version
-        .as_deref()
-        .or_else(|| {
-            target_pkg
-                .versions
-                .first()
-                .map(|v| v.version_number.as_str())
-        })
-        .ok_or_else(|| AppError::Mod("No version available".to_string()))?;
-
-    let target_ver_info = target_pkg
-        .versions
-        .iter()
-        .find(|v| v.version_number == target_version)
-        .ok_or_else(|| AppError::Mod("Version not found".to_string()))?;
-
-    // Get currently installed mods to skip existing deps
-    let profile = profile_manager::load_profile(&active_profile)?;
-    let mut installed_set: HashSet<String> = profile.mods.iter().map(|m| m.full_name.clone()).collect();
-    installed_set.insert("denikson-BepInExPack_Valheim".into());
-
-    // Resolve dependencies
-    emit_progress(
-        &app,
-        "resolving",
-        &full_name,
-        0,
-        0,
-        0,
-        None,
-        "Resolving dependencies...",
-    );
-
-    let deps = dependency_resolver::resolve_dependencies(
-        &full_name,
-        target_version,
-        &packages,
-        &profile.mods,
-    )?;
-
-    let total_items = deps.len() + 1; // deps + target mod
-    let mut installed_mods = Vec::new();
-    let mut failed_mods: Vec<String> = Vec::new();
-
-    // Install dependencies first (in topological order)
-    for (idx, dep) in deps.iter().enumerate() {
-        if installed_set.contains(&dep.full_name) {
-            continue;
-        }
-
-        emit_progress(
-            &app,
-            "downloading",
-            &dep.full_name,
-            idx + 1,
-            total_items,
-            0,
-            None,
-            &format!("Downloading {} ({}/{})", dep.name, idx + 1, total_items),
-        );
-
-        let app_clone = app.clone();
-        let dep_name = dep.full_name.clone();
-        let dep_idx = idx + 1;
-
-        let dep_zip = match thunderstore_client::download_mod_with_progress(
-            &dep.download_url,
-            Some(Box::new(move |downloaded, total| {
-                emit_progress(
-                    &app_clone,
-                    "downloading",
-                    &dep_name,
-                    dep_idx,
-                    total_items,
-                    downloaded,
-                    total,
-                    &format!("Downloading..."),
-                );
-            })),
-        )
-        .await
-        {
-            Ok(zip) => zip,
-            Err(e) => {
-                tracing::warn!("Failed to download {}: {}, skipping", dep.full_name, e);
-                failed_mods.push(dep.full_name.clone());
-                continue;
-            }
-        };
-
-        emit_progress(
-            &app,
-            "installing",
-            &dep.full_name,
-            idx + 1,
-            total_items,
-            0,
-            None,
-            &format!("Installing {} ({}/{})", dep.name, idx + 1, total_items),
-        );
-
-        // Find dependency info for its own deps
-        let dep_pkg = thunderstore_client::find_package(&packages, &dep.full_name);
-        let dep_dependencies: Vec<String> = dep_pkg
-            .and_then(|p| p.versions.first())
-            .map(|v| v.dependencies.clone())
-            .unwrap_or_default();
-
-        match mod_installer::install_mod_from_bytes(
-            &dep.author,
-            &dep.name,
-            &dep.version,
-            &dep.description,
-            &dep.icon,
-            &dep_dependencies,
-            &dep_zip,
-            &game_root,
-        ) {
-            Ok(installed) => {
-                profile_manager::add_mod_to_profile(&active_profile, installed.clone())?;
-                installed_mods.push(installed);
-            }
-            Err(e) => {
-                tracing::warn!("Failed to install {}: {}, skipping", dep.full_name, e);
-                failed_mods.push(dep.full_name.clone());
-            }
-        }
-    }
-
-    // Install the target mod itself
-    if !installed_set.contains(&full_name) {
-        emit_progress(
-            &app,
-            "downloading",
-            &full_name,
-            total_items,
-            total_items,
-            0,
-            None,
-            &format!("Downloading {}", target_pkg.name),
-        );
-
-        let app_clone = app.clone();
-        let fn_clone = full_name.clone();
-
-        let target_zip = thunderstore_client::download_mod_with_progress(
-            &target_ver_info.download_url,
-            Some(Box::new(move |downloaded, total| {
-                emit_progress(
-                    &app_clone,
-                    "downloading",
-                    &fn_clone,
-                    total_items,
-                    total_items,
-                    downloaded,
-                    total,
-                    "Downloading...",
-                );
-            })),
-        )
-        .await?;
-
-        emit_progress(
-            &app,
-            "installing",
-            &full_name,
-            total_items,
-            total_items,
-            0,
-            None,
-            &format!("Installing {}", target_pkg.name),
-        );
-
-        let installed = mod_installer::install_mod_from_bytes(
-            &target_pkg.owner,
-            &target_pkg.name,
-            &target_ver_info.version_number,
-            &target_ver_info.description,
-            &target_ver_info.icon,
-            &target_ver_info.dependencies,
-            &target_zip,
-            &game_root,
-        )?;
-
-        profile_manager::add_mod_to_profile(&active_profile, installed.clone())?;
-        installed_mods.push(installed);
-    }
-
-    emit_progress(
-        &app,
-        "done",
-        &full_name,
-        total_items,
-        total_items,
-        0,
-        None,
-        &format!(
-            "Done! {} installed, {} failed",
-            installed_mods.len(),
-            failed_mods.len()
-        ),
-    );
-
-    info!(
-        "Successfully installed {} mods ({} failed)",
-        installed_mods.len(),
-        failed_mods.len()
-    );
-    crate::services::compatibility::reconcile(
-        &profile_manager::load_profile(&active_profile)?,
-        &game_root,
-    )?;
-    if !failed_mods.is_empty() {
-        return Err(AppError::Mod(format!("Partially installed: {} succeeded. Failed dependencies: {}. Resolve these before playing; successful files were retained.", installed_mods.len(), failed_mods.join(", "))));
-    }
-    Ok(installed_mods)
+    let version = version.ok_or_else(|| AppError::Mod("Select a package version first".into()))?;
+    super::updates::change_mod_version(full_name, version, source, state).await
 }
 
 /// Uninstall a mod.
@@ -369,11 +125,13 @@ pub async fn get_installed_mods(
 #[tauri::command]
 pub async fn install_modpack(
     full_name: String,
+    version: String,
+    source: Option<crate::models::profile::CatalogSource>,
     state: tauri::State<'_, Mutex<AppState>>,
     app: tauri::AppHandle,
 ) -> AppResult<Vec<InstalledMod>> {
     info!("Command: install_modpack({})", full_name);
-    install_mod(full_name, None, state, app).await
+    install_mod(full_name, Some(version), source, state, app).await
 }
 
 /// Sync mods: ensure all profile mods exist in the game directory,
@@ -414,8 +172,7 @@ pub async fn sync_mods(
                 None,
                 "Fetching package list...",
             );
-            let source = profile_manager::load_profile(&active_profile)?.catalog_source;
-            let p = thunderstore_client::fetch_catalog(source, false).await?;
+            let p = thunderstore_client::fetch_all_catalogs(false).await?;
             let mut s = state
                 .lock()
                 .map_err(|e| AppError::Mod(format!("Lock: {}", e)))?;
@@ -434,7 +191,7 @@ pub async fn sync_mods(
         .mods
         .iter()
         .filter(|m| {
-            if !m.enabled {
+            if !m.enabled || m.full_name == "denikson-BepInExPack_Valheim" {
                 return false;
             } // Sync must not re-enable disabled mods.
             let mod_dir = plugins_dir.join(&m.full_name);
@@ -458,7 +215,7 @@ pub async fn sync_mods(
             &format!("Reinstalling {} ({}/{})", m.name, idx + 1, total),
         );
 
-        let pkg = thunderstore_client::find_package(&packages, &m.full_name);
+        let pkg = packages.iter().find(|p| p.full_name == m.full_name && m.source == Some(p.source));
         if let Some(pkg) = pkg {
             let ver = pkg.versions.iter().find(|v| v.version_number == m.version);
 

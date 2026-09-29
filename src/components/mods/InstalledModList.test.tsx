@@ -29,7 +29,7 @@ test("batch updates require confirmation and use one profile-scoped transaction"
 });
 test("search reads the Rust author field and does not blank", async () => {
   render(<InstalledModList />);
-  await screen.findByText("by Therzie");
+  await screen.findByText(/by Therzie/);
   fireEvent.change(screen.getByPlaceholderText("Search installed mods..."), { target: { value: "Therzie" } });
   expect(screen.getByText("Wizardry")).toBeTruthy();
   fireEvent.change(screen.getByPlaceholderText("Search installed mods..."), { target: { value: "does-not-exist" } });

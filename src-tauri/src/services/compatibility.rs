@@ -326,6 +326,7 @@ mod tests {
             std::fs::create_dir_all(&dir).unwrap();
             std::fs::write(dir.join("Original.dll"), b"untouched").unwrap();
             profile.mods.push(InstalledMod {
+                source: None,
                 full_name: package.into(),
                 name: package.into(),
                 author: "Test".into(),

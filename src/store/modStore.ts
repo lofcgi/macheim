@@ -4,9 +4,12 @@ import type {
   InstalledMod,
   SortOption,
   SortDirection,
+  CatalogSource,
 } from "../lib/types";
 
 interface ModState {
+  sourceFilter: CatalogSource | "all";
+  setSourceFilter: (source: CatalogSource | "all") => void;
   packages: ThunderstorePackage[];
   installedMods: InstalledMod[];
   searchQuery: string;
@@ -32,6 +35,8 @@ interface ModState {
 }
 
 export const useModStore = create<ModState>((set, get) => ({
+  sourceFilter: "all",
+  setSourceFilter: (sourceFilter) => set({ sourceFilter }),
   packages: [],
   installedMods: [],
   searchQuery: "",
@@ -54,9 +59,9 @@ export const useModStore = create<ModState>((set, get) => ({
   setSelectedPackage: (pkg) => set({ selectedPackage: pkg }),
 
   getFilteredPackages: () => {
-    const { packages, searchQuery, sortBy, sortDirection } = get();
+    const { packages, searchQuery, sortBy, sortDirection, sourceFilter } = get();
 
-    let filtered = packages.filter((pkg) => !pkg.is_deprecated);
+    let filtered = packages.filter((pkg) => !pkg.is_deprecated && (sourceFilter === "all" || pkg.source === sourceFilter));
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

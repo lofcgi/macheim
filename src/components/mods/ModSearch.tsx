@@ -1,6 +1,7 @@
 import { Search, Flame, Clock, Star, ArrowDownAZ } from "lucide-react";
 import { useModStore } from "../../store/modStore";
 import type { SortOption } from "../../lib/types";
+import CatalogFilter from "./CatalogFilter";
 
 const sortTabs: { value: SortOption; label: string; icon: typeof Flame }[] = [
   { value: "downloads", label: "Popular", icon: Flame },
@@ -17,6 +18,7 @@ export default function ModSearch() {
 
   return (
     <div className="flex flex-col gap-4 mb-6">
+      <CatalogFilter />
       {/* Search */}
       <div className="relative">
         <Search
