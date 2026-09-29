@@ -53,7 +53,8 @@ pub fn load_profile(name: &str) -> AppResult<Profile> {
     validate_name(name)?;
     let path = get_profile_dir(name).join("profile.json");
     reject_symlink_ancestors(&path)?;
-    let profile: Profile = serde_json::from_slice(&std::fs::read(path)?)?;
+    let mut profile: Profile = serde_json::from_slice(&std::fs::read(path)?)?;
+    profile.pin_legacy_sources();
     if profile.name != name {
         return Err(AppError::Profile(
             "Profile metadata name does not match its directory.".into(),
@@ -216,6 +217,7 @@ fn register_manual_mods(profile: &mut Profile, bepinex: &Path) -> AppResult<Vec<
             validate_name(&name)?;
             let (author, mod_name) = name.split_once('-').unwrap_or(("Unknown", &name));
             profile.mods.push(InstalledMod {
+                source: None,
                 full_name: name.clone(),
                 author: author.into(),
                 name: mod_name.into(),

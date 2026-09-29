@@ -33,7 +33,7 @@ export default function ModCard({ pkg }: ModCardProps) {
 
     setInstallingMod(pkg.full_name);
     try {
-      await installMod(pkg.full_name, pkg.version_number);
+      await installMod(pkg.full_name, pkg.version_number, pkg.source);
       // Refresh installed mods list
       const mods = await getInstalledMods();
       setInstalledMods(mods);
@@ -78,7 +78,7 @@ export default function ModCard({ pkg }: ModCardProps) {
               {pkg.name}
             </h3>
             <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-              by {pkg.owner}
+              by {pkg.owner} · {pkg.source === "hexium" ? "Hexium" : "Thunderstore"}
             </p>
             <p className="text-xs text-[var(--color-text-secondary)] mt-1.5 line-clamp-2 leading-relaxed">
               {pkg.description || "No description"}

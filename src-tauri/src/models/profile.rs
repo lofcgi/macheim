@@ -26,6 +26,14 @@ pub struct Profile {
 }
 
 impl Profile {
+    pub fn pin_legacy_sources(&mut self) {
+        for m in &mut self.mods {
+            if m.source.is_none() && m.version != "0.0.0" {
+                m.source = Some(self.catalog_source);
+            }
+        }
+    }
+
     pub fn new(name: String, description: String) -> Self {
         let now = chrono::Utc::now().to_rfc3339();
         Self {

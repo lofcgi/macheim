@@ -297,7 +297,7 @@ export default function InstalledModList() {
                 )}
               </div>
               <p className="text-xs text-[var(--color-text-muted)] truncate">
-                by {mod.author}
+                by {mod.author} · {mod.source ?? "manual / unknown"}
               </p>
             </div>
 

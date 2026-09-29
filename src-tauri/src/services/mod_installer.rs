@@ -68,6 +68,7 @@ pub fn install_mod_from_bytes(
     }
 
     let installed = InstalledMod {
+        source: None,
         full_name,
         author: author.to_string(),
         name: name.to_string(),

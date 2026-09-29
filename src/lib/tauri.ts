@@ -3,6 +3,7 @@ import { useAppStore } from "../store/appStore";
 import { useModStore } from "../store/modStore";
 import { useProfileStore } from "../store/profileStore";
 import type {
+  CatalogSource,
   GameStatus,
   ThunderstorePackage,
   PackageDetail,
@@ -52,23 +53,23 @@ export async function searchPackages(
 }
 
 export async function getPackageDetails(
-  fullName: string
+  fullName: string, source?: CatalogSource
 ): Promise<PackageDetail> {
-  return invoke<PackageDetail>("get_package_details", { fullName });
+  return invoke<PackageDetail>("get_package_details", { fullName, source });
 }
 
 // ── Mod Management ──────────────────────────────────────────────
 
-export async function installMod(fullName: string, version: string): Promise<InstalledMod[]> {
-  return invoke<InstalledMod[]>("install_mod", { fullName, version });
+export async function installMod(fullName: string, version: string, source?: CatalogSource): Promise<InstalledMod[]> {
+  return invoke<InstalledMod[]>("install_mod", { fullName, version, source });
 }
 
 export interface ModUpdate { full_name: string; name: string; current_version: string; latest_version: string }
 export async function checkModUpdates(): Promise<ModUpdate[]> {
   return invoke<ModUpdate[]>("check_mod_updates");
 }
-export async function changeModVersion(fullName: string, version: string): Promise<InstalledMod[]> {
-  return invoke<InstalledMod[]>("change_mod_version", { fullName, version });
+export async function changeModVersion(fullName: string, version: string, source?: CatalogSource): Promise<InstalledMod[]> {
+  return invoke<InstalledMod[]>("change_mod_version", { fullName, version, source });
 }
 
 export async function uninstallMod(fullName: string): Promise<void> {
@@ -83,8 +84,8 @@ export async function getInstalledMods(): Promise<InstalledMod[]> {
   return invoke<InstalledMod[]>("get_installed_mods");
 }
 
-export async function installModpack(fullName: string, _version?: string): Promise<InstalledMod[]> {
-  return invoke<InstalledMod[]>("install_modpack", { fullName });
+export async function installModpack(fullName: string, version: string, source?: CatalogSource): Promise<InstalledMod[]> {
+  return invoke<InstalledMod[]>("install_modpack", { fullName, version, source });
 }
 
 export interface SyncResult {

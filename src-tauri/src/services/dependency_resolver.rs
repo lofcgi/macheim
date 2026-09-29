@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ResolvedDependency {
+    pub source: crate::models::profile::CatalogSource,
     pub full_name: String,
     pub author: String,
     pub name: String,
@@ -79,15 +80,19 @@ pub fn resolve_plan(
             self.visiting.insert(id.into());
             let download = self.selected.contains_key(id) || existing.is_none();
             let (dependencies, resolved) = if download {
-                let p = self
+                let mut matches = self
                     .packages
                     .iter()
-                    .find(|p| p.full_name == id)
+                    .filter(|p| p.full_name == id);
+                let p = matches.next()
                     .ok_or_else(|| {
                         invalid(format!(
                             "Package {id} is missing from this profile's catalog"
                         ))
                     })?;
+                if matches.next().is_some() {
+                    return Err(invalid(format!("Choose a source for {id}: install this dependency explicitly from Thunderstore or Hexium first. No files were changed.")));
+                }
                 let v = p
                     .versions
                     .iter()
@@ -98,6 +103,7 @@ pub fn resolve_plan(
                 (
                     v.dependencies.clone(),
                     Some(ResolvedDependency {
+                        source: p.source,
                         full_name: id.into(),
                         author: p.owner.clone(),
                         name: p.name.clone(),
@@ -164,6 +170,11 @@ pub fn resolve_dependencies(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn ambiguous_catalog_entries_must_not_pick_the_first_download() {
+        let a = package("A", vec![]);
+        assert!(resolve_plan(&[("Team-A".into(), "1.0.0".into())], &[a.clone(), a], &[]).is_err());
+    }
     fn package(name: &str, deps: Vec<&str>) -> ThunderstorePackage {
         serde_json::from_value(serde_json::json!({
             "name":name,"full_name":format!("Team-{name}"),"owner":"Team","package_url":"",
@@ -174,6 +185,7 @@ mod tests {
     }
     fn installed(name: &str, version: &str, enabled: bool, deps: Vec<&str>) -> InstalledMod {
         InstalledMod {
+            source: None,
             full_name: format!("Team-{name}"),
             name: name.into(),
             author: "Team".into(),

@@ -67,6 +67,7 @@ fn stage_package(
         mod_installer::toggle_mod(&p.full_name, false, root)?;
     }
     result.enabled = enabled;
+    result.source = Some(p.source);
     Ok(result)
 }
 
@@ -85,7 +86,7 @@ where
     profile_manager::replace_bepinex_dirs(&root.join("BepInEx"), &stage.path().join("BepInEx"))?;
     let mut staged_profile = profile.clone();
     for dep in plan {
-        let p = thunderstore_client::find_package(packages, &dep.full_name)
+        let p = packages.iter().find(|p| p.full_name == dep.full_name && p.source == dep.source)
             .ok_or_else(|| AppError::Mod(format!("Missing package {}", dep.full_name)))?;
         let v = p
             .versions
@@ -116,7 +117,8 @@ pub async fn check_mod_updates(
         .active_profile
         .clone();
     let profile = profile_manager::load_profile(&name)?;
-    let packages = thunderstore_client::fetch_catalog(profile.catalog_source, true).await?;
+    let all_packages = thunderstore_client::fetch_all_catalogs(true).await?;
+    let packages = crate::services::catalog_selection::select_catalog(&all_packages, &profile.mods, None);
     let updates = profile
         .mods
         .iter()
@@ -142,7 +144,7 @@ pub async fn check_mod_updates(
     state
         .lock()
         .map_err(|e| AppError::Mod(e.to_string()))?
-        .thunderstore_cache = Some(packages);
+        .thunderstore_cache = Some(all_packages);
     Ok(updates)
 }
 
@@ -152,9 +154,10 @@ pub async fn check_mod_updates(
 pub async fn change_mod_version(
     full_name: String,
     version: String,
+    source: Option<crate::models::profile::CatalogSource>,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> AppResult<Vec<InstalledMod>> {
-    change_versions(vec![(full_name, version)], None, state).await
+    change_versions(vec![(full_name, version)], None, source, state).await
 }
 
 #[tauri::command]
@@ -163,12 +166,13 @@ pub async fn update_mods(
     profile_name: String,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> AppResult<Vec<InstalledMod>> {
-    change_versions(targets, Some(profile_name), state).await
+    change_versions(targets, Some(profile_name), None, state).await
 }
 
 async fn change_versions(
     targets: Vec<(String, String)>,
     expected_profile: Option<String>,
+    source: Option<crate::models::profile::CatalogSource>,
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> AppResult<Vec<InstalledMod>> {
     let _operation = crate::lock_operation(&state)?;
@@ -206,6 +210,13 @@ async fn change_versions(
         ));
     }
     let profile = profile_manager::load_profile(&name)?;
+    for (id, _) in &targets {
+        crate::services::catalog_selection::validate_target_source(&profile.mods, id, source)?;
+        if source.is_some_and(|source| !packages.iter().any(|p| p.full_name == *id && p.source == source)) {
+            return Err(AppError::Mod(format!("{id} is unavailable from the selected source. Refresh the catalog.")));
+        }
+    }
+    let packages = crate::services::catalog_selection::select_catalog(&packages, &profile.mods, source);
     let original = profile.clone();
     let plan = dependency_resolver::resolve_plan(&targets, &packages, &profile.mods)?;
     let (mut profile, stage) = stage_plan(&profile, &root, &packages, plan, |url| async move {
@@ -244,6 +255,31 @@ async fn change_versions(
 mod tests {
     use super::*;
     use std::io::Write;
+    #[tokio::test]
+    async fn mixed_install_stages_both_origins_and_single_shared_dependency() {
+        use crate::models::profile::CatalogSource::{Hexium, Thunderstore};
+        let mut a = package();
+        a.source = Hexium;
+        a.versions[0].dependencies = vec!["Team-Other-2.0.0".into(), "denikson-BepInExPack_Valheim-5.4.2351".into()];
+        let mut b = package();
+        b.source = Thunderstore; b.name = "Other".into(); b.full_name = "Team-Other".into();
+        b.versions[0].dependencies = vec!["denikson-BepInExPack_Valheim-5.4.2351".into()];
+        b.versions[0].download_url = "other".into();
+        let profile = crate::models::Profile::new("Mixed".into(), "".into());
+        let packages = crate::services::catalog_selection::select_catalog(&[a,b], &[], Some(Hexium));
+        let plan = dependency_resolver::resolve_plan(&[("Team-Mod".into(), "2.0.0".into())], &packages, &[]).unwrap();
+        assert_eq!(plan.len(), 2);
+        let root = tempfile::tempdir().unwrap();
+        let (installed, stage) = stage_plan(&profile, root.path(), &packages, plan, |url| async move { Ok(archive(if url == "other" { "Other" } else { "Mod" })) }).await.unwrap();
+        assert_eq!(installed.mods.len(), 2);
+        assert_eq!(installed.mods[0].source, Some(Thunderstore));
+        assert_eq!(installed.mods[1].source, Some(Hexium));
+        assert!(stage.path().join("BepInEx/plugins/Team-Other/new.dll").exists());
+        assert!(stage.path().join("BepInEx/plugins/Team-Mod/new.dll").exists());
+        assert!(!root.path().join("BepInEx").exists());
+        let mut conflict = installed.mods.clone(); conflict[0].version = "1.0.0".into();
+        assert!(dependency_resolver::resolve_plan(&[("Team-Mod".into(), "2.0.0".into())], &packages, &conflict).is_err());
+    }
     fn package() -> crate::models::ThunderstorePackage {
         serde_json::from_value(serde_json::json!({"name":"Mod","owner":"Team","full_name":"Team-Mod","package_url":"","date_updated":"","is_deprecated":false,"rating_score":0,
           "versions":[{"name":"Mod","full_name":"Team-Mod-2.0.0","version_number":"2.0.0","dependencies":[],"download_url":"","downloads":0,"description":"","icon":"","date_created":""}]})).unwrap()
@@ -428,5 +464,31 @@ mod tests {
             "Staged {} {} in a temporary directory only",
             p.full_name, v.version_number
         );
+    }
+
+    #[tokio::test]
+    #[ignore = "downloads both catalogs and two public packages into isolated staging; never executes mods"]
+    async fn live_mixed_catalog_staging() {
+        use crate::models::profile::CatalogSource::{Hexium, Thunderstore};
+        let all = thunderstore_client::fetch_all_catalogs(true).await.unwrap();
+        println!("Mixed catalog: {} Thunderstore, {} Hexium", all.iter().filter(|p| p.source == Thunderstore).count(), all.iter().filter(|p| p.source == Hexium).count());
+        for p in all.iter().filter(|p| p.name.to_lowercase().contains("transmog")) {
+            println!("Transmog listing: {} {:?} {}", p.full_name, p.source, p.versions[0].version_number);
+        }
+        let root = tempfile::tempdir().unwrap();
+        let mut profile = crate::models::Profile::new("LiveMixedQA".into(), "".into());
+        for (name, source) in [("ValheimModding-Jotunn", Hexium), ("Alpus-Transmog", Thunderstore)] {
+            let p = all.iter().find(|p| p.full_name == name && p.source == source).expect("live QA package exists");
+            let selected = crate::services::catalog_selection::select_catalog(&all, &profile.mods, Some(source));
+            let plan = dependency_resolver::resolve_plan(&[(name.into(), p.versions[0].version_number.clone())], &selected, &profile.mods).unwrap();
+            let (next, stage) = stage_plan(&profile, root.path(), &selected, plan, |url| async move { thunderstore_client::download_mod(&url).await }).await.unwrap();
+            profile_manager::replace_bepinex_dirs(&stage.path().join("BepInEx"), &root.path().join("BepInEx")).unwrap();
+            profile = next;
+            println!("Staged {name} from {source:?} into temporary mixed profile");
+        }
+        assert!(profile.mods.iter().any(|m| m.source == Some(Hexium)));
+        assert!(profile.mods.iter().any(|m| m.source == Some(Thunderstore)));
+        let roundtrip: crate::models::Profile = serde_json::from_slice(&serde_json::to_vec(&profile).unwrap()).unwrap();
+        assert_eq!(roundtrip.mods.len(), profile.mods.len());
     }
 }

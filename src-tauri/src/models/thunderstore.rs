@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ThunderstorePackage {
+    #[serde(default)]
+    pub source: super::profile::CatalogSource,
     pub name: String,
     pub full_name: String,
     pub owner: String,
@@ -38,6 +40,7 @@ pub struct PackageVersion {
 /// Lightweight package info for search results / listing
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PackageListing {
+    pub source: super::profile::CatalogSource,
     pub name: String,
     pub full_name: String,
     pub owner: String,
@@ -55,6 +58,7 @@ impl From<&ThunderstorePackage> for PackageListing {
     fn from(pkg: &ThunderstorePackage) -> Self {
         let latest = pkg.versions.first();
         Self {
+            source: pkg.source,
             name: pkg.name.clone(),
             full_name: pkg.full_name.clone(),
             owner: pkg.owner.clone(),

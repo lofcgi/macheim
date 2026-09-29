@@ -17,6 +17,8 @@ import { useAppStore } from "../../store/appStore";
 import { installModpack, getInstalledMods } from "../../lib/tauri";
 import { loadCatalog } from "../../lib/catalog";
 import CatalogStatus from "./CatalogStatus";
+import CatalogFilter from "./CatalogFilter";
+import type { CatalogSource } from "../../lib/types";
 
 type ModpackSort = "popular" | "updated" | "rated" | "name";
 
@@ -47,6 +49,7 @@ const sortTabs: { value: ModpackSort; label: string; icon: typeof Flame }[] = [
 
 export default function ModpackBrowser() {
   const packages = useModStore((s) => s.packages);
+  const sourceFilter = useModStore((s) => s.sourceFilter);
   const isLoading = useModStore((s) => s.isLoadingPackages);
   const installedMods = useModStore((s) => s.installedMods);
   const isInstallingMod = useModStore((s) => s.isInstallingMod);
@@ -64,7 +67,7 @@ export default function ModpackBrowser() {
 
   // Filter modpacks
   const modpacks = packages.filter((pkg) => {
-    if (pkg.is_deprecated) return false;
+    if (pkg.is_deprecated || (sourceFilter !== "all" && pkg.source !== sourceFilter)) return false;
     const cats = (pkg.categories ?? []).map((c) => c.toLowerCase());
     const nameL = pkg.name.toLowerCase();
     const descL = (pkg.description ?? "").toLowerCase();
@@ -104,10 +107,10 @@ export default function ModpackBrowser() {
     }
   });
 
-  const handleInstall = async (fullName: string, version: string, name: string) => {
+  const handleInstall = async (fullName: string, version: string, name: string, source?: CatalogSource) => {
     setInstallingMod(fullName);
     try {
-      await installModpack(fullName, version);
+      await installModpack(fullName, version, source);
       const mods = await getInstalledMods();
       setInstalledMods(mods);
       addToast({ type: "success", message: `Installed modpack ${name}` });
@@ -128,6 +131,7 @@ export default function ModpackBrowser() {
   return (
     <div>
       <CatalogStatus />
+      <CatalogFilter />
       {/* Search + Sort Bar */}
       <div className="flex flex-col gap-4 mb-6">
         {/* Search */}
@@ -205,7 +209,7 @@ export default function ModpackBrowser() {
 
             return (
               <div
-                key={pkg.full_name}
+                key={`${pkg.source}:${pkg.full_name}`}
                 onClick={() => setSelectedPackage(pkg)}
                 className="rounded-xl border border-[var(--color-border-subtle)] bg-[var(--color-bg-card)]
                   hover:bg-[var(--color-bg-card-hover)] hover:border-[var(--color-border-default)]
@@ -233,7 +237,7 @@ export default function ModpackBrowser() {
                         {pkg.name}
                       </h3>
                       <p className="text-xs text-[var(--color-text-muted)] mt-0.5">
-                        by {pkg.owner}
+                        by {pkg.owner} · {pkg.source === "hexium" ? "Hexium" : "Thunderstore"}
                       </p>
                       <p className="text-xs text-[var(--color-text-secondary)] mt-1.5 line-clamp-2 leading-relaxed">
                         {pkg.description || "No description"}
@@ -259,7 +263,7 @@ export default function ModpackBrowser() {
 
                   <button
                     onClick={() =>
-                      handleInstall(pkg.full_name, pkg.version_number, pkg.name)
+                      handleInstall(pkg.full_name, pkg.version_number, pkg.name, pkg.source)
                     }
                     disabled={isInstalled || isInstalling}
                     className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer

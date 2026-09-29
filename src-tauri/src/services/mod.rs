@@ -1,4 +1,5 @@
 pub mod backup_manager;
+pub mod catalog_selection;
 pub mod bepinex_installer;
 pub mod compatibility;
 pub mod config_editor;
