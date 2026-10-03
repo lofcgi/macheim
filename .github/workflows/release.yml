@@ -70,19 +70,16 @@ jobs:
 
             Valheim Mod Manager for macOS.
 
-            ### What's new in 1.3.0
-            - Install Thunderstore and Hexium mods into the same existing or new profile. Browse Mods / Modpacks now have All sources, Thunderstore and Hexium filters and source labels.
-            - Each mod keeps its installation source for updates and sync; existing managed mods keep their legacy profile source. No silent migration or duplicate installs.
-            - New dependencies prefer the selected mod's catalog; unique dependencies may come from the other catalog. Conflicting versions and ambiguous batch dependencies stop with an explicit error.
-            - Installs and modpacks now use the validated staging transaction, preserving live files when a download or manifest fails.
-            - The shared BepInEx installer uses its dedicated lookup independently of the browsing catalog.
+            ### What's new in 1.3.1
+            - Fixes `JSON error: expected value at line 1 column 1` when installing or updating Thunderstore mods whose `manifest.json` starts with a UTF-8 byte order mark (#25). This affected 1.3.0 installs of packages such as Drop That and Thunderstore Jotunn, and mods that depend on them.
+            - Includes the mixed Thunderstore + Hexium profile support from 1.3.0.
 
             ### Compatibility limits
             The bundled visual patch targets Valheim 0.221.12 / Unity 6000.0.61f1 / Metal and requires ShaderHelperForMac 3.3.0.
             It does not fix every mod, monster, building or UI icon. Unknown versions are skipped.
             Macheim's Apple Silicon app still launches the modded game through Rosetta.
             Both catalogs must load successfully. Mixed-source support is not automatic cross-repository migration, PC profile-code import, or a guarantee that arbitrary mods work together.
-            See RELEASE-1.3.0.md for QA evidence and known limitations. User-specific download errors still require the exact error and package details; backpack shaders and newer game/Unity versions are not newly supported by this release.
+            See RELEASE-1.3.1.md for QA evidence and known limitations. User-specific download errors still require the exact error and package details; backpack shaders and newer game/Unity versions are not newly supported by this release.
 
             ### Installation
             1. Download the `.dmg` file for your Mac
