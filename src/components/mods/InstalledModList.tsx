@@ -14,6 +14,8 @@ import { checkModUpdates, updateMods, type ModUpdate } from "../../lib/tauri";
 import { useProfileStore } from "../../store/profileStore";
 import { useAppStore } from "../../store/appStore";
 import { confirm } from "@tauri-apps/plugin-dialog";
+import { loadCatalog } from "../../lib/catalog";
+import type { InstalledMod } from "../../lib/types";
 import {
   getInstalledMods,
   toggleMod,
@@ -36,6 +38,18 @@ export default function InstalledModList() {
   const [updates, setUpdates] = useState<ModUpdate[]>([]);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null);
+  const [openingVersions, setOpeningVersions] = useState<string | null>(null);
+
+  async function openVersions(mod: InstalledMod) {
+    setOpeningVersions(mod.full_name);
+    try {
+      if (!useModStore.getState().packages.length) await loadCatalog();
+      const { packages, packageError, setSelectedPackage } = useModStore.getState();
+      const pkg = packages.find(p => p.full_name === mod.full_name && p.source === mod.source);
+      if (pkg) setSelectedPackage(pkg);
+      else addToast({ type: "error", message: packageError ? `Catalog download failed: ${packageError}` : `${mod.name} is not listed in the ${mod.source} catalog.` });
+    } finally { setOpeningVersions(null); }
+  }
 
   async function checkUpdates() {
     setChecking(true);
@@ -303,6 +317,7 @@ export default function InstalledModList() {
 
             {/* Toggle */}
             {updates.filter(u => u.full_name === mod.full_name).map(u => <button key={u.full_name} onClick={() => void applyUpdate(u)} disabled={updating !== null} className="text-xs underline disabled:opacity-40">{updating === u.full_name ? "Updating..." : `Update to ${u.latest_version}`}</button>)}
+            {mod.source && mod.full_name !== "denikson-BepInExPack_Valheim" && <button onClick={() => void openVersions(mod)} disabled={openingVersions !== null} className="text-xs underline disabled:opacity-40">{openingVersions === mod.full_name ? "Loading versions..." : "Change version"}</button>}
             <button
               onClick={() => handleToggle(mod.full_name, mod.enabled)}
               disabled={togglingMod === mod.full_name}
