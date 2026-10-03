@@ -24,8 +24,9 @@ fn stage_package(
     enabled: bool,
 ) -> AppResult<InstalledMod> {
     let mut archive = zip::ZipArchive::new(std::io::Cursor::new(bytes))?;
-    let manifest: crate::models::manifest::Manifest =
-        serde_json::from_reader(archive.by_name("manifest.json")?)?;
+    let mut raw = Vec::new();
+    std::io::Read::read_to_end(&mut archive.by_name("manifest.json")?, &mut raw)?;
+    let manifest = crate::models::manifest::Manifest::from_slice(&raw)?;
     // Catalogs may add loader requirements absent from the upstream manifest.
     // Reject archive requirements not covered by the already validated plan.
     let covered = manifest.dependencies.iter().all(|dependency| {
@@ -359,6 +360,21 @@ mod tests {
         assert!(stage_package(&p, &p.versions[0], &archive("Mod"), root.path(), true).is_ok());
     }
     #[test]
+    fn manifest_with_utf8_bom_is_accepted() {
+        // Issue #25: Thunderstore archives such as ASharpPen-Drop_That 3.1.6 and Jotunn 2.30.2 ship a BOM.
+        let root = tempfile::tempdir().unwrap();
+        let p = package();
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let options = zip::write::SimpleFileOptions::default();
+        zip.start_file("manifest.json", options).unwrap();
+        zip.write_all(b"\xEF\xBB\xBF{\r\n\"name\":\"Mod\",\"version_number\":\"2.0.0\",\"description\":\"\",\"dependencies\":[]}").unwrap();
+        zip.start_file("plugins/new.dll", options).unwrap();
+        zip.write_all(b"new").unwrap();
+        let bytes = zip.finish().unwrap().into_inner();
+        stage_package(&p, &p.versions[0], &bytes, root.path(), true).unwrap();
+        assert!(root.path().join("BepInEx/plugins/Team-Mod/new.dll").exists());
+    }
+    #[test]
     fn invalid_download_does_not_remove_old_files() {
         let root = tempfile::tempdir().unwrap();
         let folder = root.path().join("BepInEx/plugins/Team-Mod");
@@ -447,8 +463,9 @@ mod tests {
             .await
             .unwrap();
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bytes)).unwrap();
-        let manifest: crate::models::manifest::Manifest =
-            serde_json::from_reader(archive.by_name("manifest.json").unwrap()).unwrap();
+        let mut raw = Vec::new();
+        std::io::Read::read_to_end(&mut archive.by_name("manifest.json").unwrap(), &mut raw).unwrap();
+        let manifest = crate::models::manifest::Manifest::from_slice(&raw).unwrap();
         println!(
             "Catalog dependencies: {:?}; archive dependencies: {:?}",
             v.dependencies, manifest.dependencies
