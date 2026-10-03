@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { confirm } from "@tauri-apps/plugin-dialog";
-import { getInstalledMods, listUnmanagedMods, syncMods, checkModUpdates, updateMods } from "../../lib/tauri";
+import { getInstalledMods, listUnmanagedMods, syncMods, checkModUpdates, updateMods, fetchPackages } from "../../lib/tauri";
 import { useModStore } from "../../store/modStore";
 import InstalledModList from "./InstalledModList";
-vi.mock("../../lib/tauri", () => ({ getInstalledMods: vi.fn(), listUnmanagedMods: vi.fn(), syncMods: vi.fn(), toggleMod: vi.fn(), uninstallMod: vi.fn(), checkModUpdates: vi.fn(), changeModVersion: vi.fn(), updateMods: vi.fn() }));
+vi.mock("../../lib/tauri", () => ({ getInstalledMods: vi.fn(), listUnmanagedMods: vi.fn(), syncMods: vi.fn(), toggleMod: vi.fn(), uninstallMod: vi.fn(), checkModUpdates: vi.fn(), changeModVersion: vi.fn(), updateMods: vi.fn(), fetchPackages: vi.fn() }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ confirm: vi.fn() }));
 const mod = { full_name: "Therzie-Wizardry", author: "Therzie", name: "Wizardry", version: "1.1.8", enabled: true, description: "", icon: "", dependencies: [], installed_at: "" };
 beforeEach(() => {
-  vi.clearAllMocks(); useModStore.setState({ installedMods: [], isLoadingInstalled: false });
+  vi.clearAllMocks(); useModStore.setState({ installedMods: [], isLoadingInstalled: false, packages: [], selectedPackage: null, packageError: null });
   vi.mocked(getInstalledMods).mockResolvedValue([mod]);
   vi.mocked(listUnmanagedMods).mockResolvedValue(["Manual-Mod"]);
   vi.mocked(syncMods).mockResolvedValue({ cleaned: [], failed: [], reinstalled: [] });
@@ -52,4 +52,14 @@ test("awaits confirmation before sending approved names", async () => {
   expect(syncMods).not.toHaveBeenCalled();
   answer(true);
   await waitFor(() => expect(syncMods).toHaveBeenCalledWith(true, ["Manual-Mod"]));
+});
+test("opens the version picker from the installed mod's own catalog", async () => {
+  const listing = { name: "Wizardry", full_name: mod.full_name, owner: "Therzie", description: "", version_number: "1.2.0", rating_score: 0, downloads: 1, is_deprecated: false, icon: "", categories: [], date_updated: "" };
+  vi.mocked(getInstalledMods).mockResolvedValue([{ ...mod, source: "hexium" }, { ...mod, full_name: "Manual-Mod", name: "Manual", source: null }]);
+  vi.mocked(fetchPackages).mockResolvedValue([{ ...listing, source: "thunderstore" }, { ...listing, source: "hexium" }]);
+  render(<InstalledModList />); await screen.findByText("Manual");
+  expect(screen.getAllByRole("button", { name: "Change version" })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("button", { name: "Change version" }));
+  await waitFor(() => expect(useModStore.getState().selectedPackage?.source).toBe("hexium"));
+  expect(fetchPackages).toHaveBeenCalledTimes(1);
 });
