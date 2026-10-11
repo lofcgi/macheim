@@ -144,12 +144,16 @@ fn build_launch_script(
     doorstop: &Path,
     executable: &Path,
 ) -> String {
+    // Valheim reads its app id from SteamAppId or steam_appid.txt. Without either,
+    // Steam init fails ("Using steam APPID:0") and the modded game quits after loading.
     format!(
         r#"#!/bin/bash
 set -e
 cd {game_root}
 open /Applications/Steam.app
 arch -x86_64 env \
+  SteamAppId=892970 \
+  SteamGameId=892970 \
   DOORSTOP_ENABLED=1 \
   DOORSTOP_TARGET_ASSEMBLY={preloader} \
   DYLD_LIBRARY_PATH={game_root} \
@@ -174,6 +178,14 @@ mod tests {
         assert!(script.contains(" -console\n"));
         assert!(script.contains("arch -x86_64 env"));
         assert_eq!(shell_quote(Path::new("/tmp/$value")), "'/tmp/$value'");
+    }
+
+    #[test]
+    fn launch_script_passes_steam_app_id() {
+        let p = Path::new("/Games/Valheim");
+        let script = build_launch_script(p, p, p, p);
+        assert!(script.contains("  SteamAppId=892970 \\\n"));
+        assert!(script.contains("  SteamGameId=892970 \\\n"));
     }
 }
 
