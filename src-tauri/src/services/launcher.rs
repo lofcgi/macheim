@@ -115,7 +115,12 @@ pub fn launch_modded(_app_path: &Path, game_root: &Path) -> AppResult<()> {
 
     // Write launcher script for Terminal.app (completely independent process)
     let launcher_script = game_root.join(".vmm_launch.sh");
-    let script_content = build_launch_script(game_root, &preloader, &doorstop, &executable);
+    let overlay_libs = steam_overlay_libs();
+    if overlay_libs.is_empty() {
+        info!("Steam overlay libraries not found; Shift+Tab overlay will be unavailable");
+    }
+    let script_content =
+        build_launch_script(game_root, &preloader, &doorstop, &executable, &overlay_libs);
     std::fs::write(&launcher_script, &script_content)?;
 
     #[cfg(unix)]
@@ -159,6 +164,21 @@ fn rosetta_runs() -> AppResult<bool> {
     Ok(status.success())
 }
 
+/// Steam injects these into games it starts itself. Play Modded starts Valheim directly,
+/// so without them Shift+Tab never opens the Steam overlay.
+fn steam_overlay_libs() -> Vec<PathBuf> {
+    let Some(home) = dirs::home_dir() else {
+        return Vec::new();
+    };
+    let steam_bin =
+        home.join("Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS");
+    ["steamloader.dylib", "gameoverlayrenderer.dylib"]
+        .iter()
+        .map(|name| steam_bin.join(name))
+        .filter(|path| path.exists())
+        .collect()
+}
+
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
@@ -168,9 +188,16 @@ fn build_launch_script(
     preloader: &Path,
     doorstop: &Path,
     executable: &Path,
+    overlay_libs: &[PathBuf],
 ) -> String {
+    let insert_libraries = std::iter::once(doorstop)
+        .chain(overlay_libs.iter().map(PathBuf::as_path))
+        .map(shell_quote)
+        .collect::<Vec<_>>()
+        .join(":");
     // Valheim reads its app id from SteamAppId or steam_appid.txt. Without either,
     // Steam init fails ("Using steam APPID:0") and the modded game quits after loading.
+    // The other Steam* variables match what Steam sets when it starts the game itself.
     format!(
         r#"#!/bin/bash
 set -e
@@ -179,15 +206,17 @@ open /Applications/Steam.app
 arch -x86_64 env \
   SteamAppId=892970 \
   SteamGameId=892970 \
+  SteamOverlayGameId=892970 \
+  SteamEnv=1 \
+  SteamClientLaunch=1 \
   DOORSTOP_ENABLED=1 \
   DOORSTOP_TARGET_ASSEMBLY={preloader} \
   DYLD_LIBRARY_PATH={game_root} \
-  DYLD_INSERT_LIBRARIES={doorstop} \
+  DYLD_INSERT_LIBRARIES={insert_libraries} \
   {executable} -console
 "#,
         game_root = shell_quote(game_root),
         preloader = shell_quote(preloader),
-        doorstop = shell_quote(doorstop),
         executable = shell_quote(executable),
     )
 }
@@ -198,7 +227,7 @@ mod tests {
     #[test]
     fn console_flag_and_apostrophe_paths_survive_script_generation() {
         let p = Path::new("/Volumes/Alice's Games/Valheim");
-        let script = build_launch_script(p, p, p, p);
+        let script = build_launch_script(p, p, p, p, &[]);
         assert!(script.contains("'\\''"));
         assert!(script.contains(" -console\n"));
         assert!(script.contains("arch -x86_64 env"));
@@ -208,9 +237,30 @@ mod tests {
     #[test]
     fn launch_script_passes_steam_app_id() {
         let p = Path::new("/Games/Valheim");
-        let script = build_launch_script(p, p, p, p);
+        let script = build_launch_script(p, p, p, p, &[]);
         assert!(script.contains("  SteamAppId=892970 \\\n"));
         assert!(script.contains("  SteamGameId=892970 \\\n"));
+    }
+
+    #[test]
+    fn launch_script_injects_steam_overlay_after_doorstop() {
+        let p = Path::new("/Games/Valheim");
+        let overlay = [
+            PathBuf::from("/Steam/steamloader.dylib"),
+            PathBuf::from("/Steam/gameoverlayrenderer.dylib"),
+        ];
+        let script = build_launch_script(p, p, Path::new("/Games/doorstop.dylib"), p, &overlay);
+        assert!(script.contains(
+            "  DYLD_INSERT_LIBRARIES='/Games/doorstop.dylib':'/Steam/steamloader.dylib':'/Steam/gameoverlayrenderer.dylib' \\\n"
+        ));
+        assert!(script.contains("  SteamOverlayGameId=892970 \\\n"));
+    }
+
+    #[test]
+    fn launch_script_without_steam_overlay_injects_only_doorstop() {
+        let p = Path::new("/Games/Valheim");
+        let script = build_launch_script(p, p, Path::new("/Games/doorstop.dylib"), p, &[]);
+        assert!(script.contains("  DYLD_INSERT_LIBRARIES='/Games/doorstop.dylib' \\\n"));
     }
 
     #[test]
