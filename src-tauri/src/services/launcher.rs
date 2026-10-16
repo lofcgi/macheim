@@ -80,6 +80,7 @@ pub fn get_bundle_executable(app_path: &Path) -> AppResult<String> {
 /// independent process outside the Tauri app's process tree.
 pub fn launch_modded(_app_path: &Path, game_root: &Path) -> AppResult<()> {
     info!("Launching Valheim with BepInEx...");
+    check_rosetta(is_apple_silicon(), rosetta_runs)?;
 
     // Find doorstop library (may be in root or doorstop_libs/)
     let doorstop = find_doorstop_lib(game_root)
@@ -134,6 +135,30 @@ pub fn launch_modded(_app_path: &Path, game_root: &Path) -> AppResult<()> {
     Ok(())
 }
 
+/// Modded play runs Valheim's x86_64 slice, so Apple Silicon needs Rosetta. Without it
+/// the Terminal launcher only prints "Bad CPU type in executable".
+fn check_rosetta(
+    apple_silicon: bool,
+    rosetta_runs: impl FnOnce() -> AppResult<bool>,
+) -> AppResult<()> {
+    if !apple_silicon || rosetta_runs()? {
+        return Ok(());
+    }
+    Err(AppError::Mod(
+        "Rosetta is not installed. Modded Valheim runs through Rosetta on Apple Silicon. \
+         Install it in Terminal with `softwareupdate --install-rosetta --agree-to-license`, \
+         then press Play Modded again."
+            .into(),
+    ))
+}
+
+fn rosetta_runs() -> AppResult<bool> {
+    let status = Command::new("/usr/bin/arch")
+        .args(["-x86_64", "/usr/bin/true"])
+        .status()?;
+    Ok(status.success())
+}
+
 fn shell_quote(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "'\\''"))
 }
@@ -186,6 +211,19 @@ mod tests {
         let script = build_launch_script(p, p, p, p);
         assert!(script.contains("  SteamAppId=892970 \\\n"));
         assert!(script.contains("  SteamGameId=892970 \\\n"));
+    }
+
+    #[test]
+    fn missing_rosetta_on_apple_silicon_explains_install_command() {
+        let err = check_rosetta(true, || Ok(false)).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("softwareupdate --install-rosetta --agree-to-license"));
+    }
+
+    #[test]
+    fn rosetta_check_is_skipped_on_intel() {
+        assert!(check_rosetta(false, || panic!("Intel Macs run x86_64 natively")).is_ok());
     }
 }
 
