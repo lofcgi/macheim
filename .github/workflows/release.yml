@@ -72,17 +72,18 @@ jobs:
 
             Valheim Mod Manager for macOS.
 
-            ### What's new in 1.3.3
-            - **Play Modded** checks for Rosetta first on Apple Silicon. If it is missing, Macheim shows how to install it (`softwareupdate --install-rosetta --agree-to-license`) instead of a Terminal window that only says `Bad CPU type in executable` (#29).
-            - The **Steam overlay** (Shift+Tab) is loaded in modded games. Macheim now injects Steam's overlay libraries next to BepInEx, the same way Steam does when it starts the game itself (#30).
-            - Includes the Steam app id launch fix and Installed Mods **Change version** from 1.3.2.
+            ### What's new in 1.4.0
+            - **In-app updates** (#33). Macheim checks for a new release when it starts. When one exists, a bar at the top of the window offers **Install and restart** and a link to the release notes. **Settings → App updates** shows the installed version and can check again.
+            - Updates are verified with Macheim's update signing key before they replace the app. A download that does not match is refused and the installed app is kept. Profiles, mods and settings are not touched.
+            - 1.3.3 and older have no updater, so download this version once by hand. Later versions can be installed from inside Macheim.
+            - Includes the Rosetta check and Steam overlay fixes from 1.3.3.
 
             ### Compatibility limits
             The bundled visual patch targets Valheim 0.221.12 / Unity 6000.0.61f1 / Metal and requires ShaderHelperForMac 3.3.0.
             It does not fix every mod, monster, building or UI icon. Unknown versions are skipped.
             Macheim's Apple Silicon app still launches the modded game through Rosetta.
             Both catalogs must load successfully. Mixed-source support is not automatic cross-repository migration, PC profile-code import, or a guarantee that arbitrary mods work together.
-            See RELEASE-1.3.3.md for QA evidence and known limitations. User-specific download errors still require the exact error and package details; backpack shaders and newer game/Unity versions are not newly supported by this release.
+            See RELEASE-1.4.0.md for QA evidence and known limitations. User-specific download errors still require the exact error and package details; backpack shaders and newer game/Unity versions are not newly supported by this release.
 
             ### Installation
             1. Download the `.dmg` file for your Mac

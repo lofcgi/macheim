@@ -353,7 +353,7 @@ export default function SetupWizard() {
 
         {/* Footer */}
         <p className="text-center text-xs text-[var(--color-text-muted)] mt-6">
-          Built for macOS &middot; Macheim v1.3.3
+          Built for macOS &middot; Macheim v1.4.0
         </p>
       </div>
     </div>
