@@ -79,7 +79,7 @@ export default function MainLayout() {
   };
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
+    <div className="flex h-full w-full overflow-hidden">
       <Sidebar />
       <div className="flex flex-col flex-1 min-w-0">
         <Header

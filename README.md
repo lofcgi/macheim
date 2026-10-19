@@ -55,6 +55,10 @@ A native macOS mod manager for [Valheim](https://store.steampowered.com/app/8929
    ```
 4. Now open Macheim normally. Only remove the quarantine attribute after confirming that you downloaded Macheim from this repository's Releases page.
 
+### Updating (1.4.0+)
+
+Macheim checks the latest GitHub release when it starts. If a newer version exists, a bar at the top of the window offers **Install and restart** and links to the release notes. **Settings → App updates** shows the installed version and can check again. The download must match Macheim's update signing key before it replaces the app; profiles, mods and settings are not touched. Versions before 1.4.0 have no updater, so download the 1.4.0 DMG once by hand.
+
 ### Build from Source
 
 Prerequisites: [Node.js](https://nodejs.org/) 24 LTS, current stable [Rust/Cargo](https://rustup.rs/), and Xcode Command Line Tools. The Tauri CLI is a project dependency. If the build says `cargo metadata` cannot be found, install Rust with rustup and restart your terminal.
