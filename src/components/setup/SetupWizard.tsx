@@ -127,7 +127,7 @@ export default function SetupWizard() {
   };
 
   return (
-    <div className="h-screen w-screen flex items-center justify-center bg-[var(--color-bg-primary)]">
+    <div className="h-full w-full flex items-center justify-center bg-[var(--color-bg-primary)]">
       <div className="w-full max-w-lg px-4">
         {/* Logo */}
         <div className="flex flex-col items-center mb-10">

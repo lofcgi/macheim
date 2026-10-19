@@ -13,6 +13,10 @@ for (const version of [lock.version, lock.packages[''].version, tauri.version, c
 assert.ok(readFileSync('src/components/setup/SetupWizard.tsx', 'utf8').includes(`Macheim v${pkg.version}`), 'Setup version label must match');
 if (process.env.GITHUB_REF_TYPE === 'tag') assert.equal(process.env.GITHUB_REF_NAME, `v${pkg.version}`, 'Tag must match packaged version');
 assert.equal(tauri.bundle.macOS.signingIdentity, '-', 'Ad-hoc signing required');
+assert.deepEqual(tauri.plugins.updater.endpoints, ['https://github.com/lofcgi/macheim/releases/latest/download/latest.json'], 'Updater must read the latest GitHub release');
+assert.match(Buffer.from(tauri.plugins.updater.pubkey, 'base64').toString(), /^untrusted comment: minisign public key/, 'Updater public key must be a minisign key');
+assert.equal(json('src-tauri/tauri.release.conf.json').bundle.createUpdaterArtifacts, true, 'Release builds must produce signed updater artifacts');
+assert.ok(readFileSync('.github/workflows/release.yml', 'utf8').includes('--config src-tauri/tauri.release.conf.json'), 'Release workflow must use the updater release config');
 
 const catalog = json('compatibility/catalog.json');
 const pluginSource = readFileSync('tools/item-material-compat/ItemMaterialCompat.cs', 'utf8');
