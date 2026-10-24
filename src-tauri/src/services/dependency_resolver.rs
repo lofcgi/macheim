@@ -144,6 +144,21 @@ pub fn resolve_plan(
         done: HashSet::new(),
         result: vec![],
     };
+    // A target's own pins come first: a modpack lists every mod at the version
+    // its author tested, so those beat the older pins its mods carry. Without
+    // this, whichever mod is visited first fixes a shared library's version
+    // and a later, higher pin fails as a conflict.
+    for (id, version) in targets {
+        let pins = packages
+            .iter()
+            .filter(|p| &p.full_name == id)
+            .flat_map(|p| p.versions.iter().filter(|v| &v.version_number == version))
+            .flat_map(|v| v.dependencies.iter())
+            .filter_map(|dependency| ParsedDependency::parse(dependency));
+        for pin in pins {
+            planner.choices.entry(pin.full_name).or_insert(pin.version);
+        }
+    }
     for (id, _) in targets {
         planner.visit(id, None)?;
     }
@@ -278,6 +293,26 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["Team-B", "Team-A"]
         );
+    }
+    #[test]
+    fn modpack_pins_win_over_older_transitive_pins() {
+        // Like a Gale modpack: it lists every mod, and two of them pin older
+        // versions of a shared library than the pack itself does.
+        let mut d = package("D", vec![]);
+        for n in ["1.1.0", "1.2.0"] {
+            let mut v = d.versions[0].clone();
+            v.version_number = n.into();
+            d.versions.push(v);
+        }
+        let packages = vec![
+            package("Pack", vec!["Team-B-1.0.0", "Team-C-1.0.0", "Team-D-1.2.0"]),
+            package("B", vec!["Team-D-1.0.0"]),
+            package("C", vec!["Team-D-1.1.0"]),
+            d,
+        ];
+        let plan = resolve_dependencies("Team-Pack", "1.0.0", &packages, &[]).unwrap();
+        let d = plan.iter().find(|p| p.full_name == "Team-D").unwrap();
+        assert_eq!(d.version, "1.2.0");
     }
     #[test]
     fn malformed_dependencies_are_errors() {
